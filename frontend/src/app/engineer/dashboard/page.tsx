@@ -6,151 +6,130 @@ import { useState, useEffect, useCallback } from 'react'
 const API = process.env.NEXT_PUBLIC_API_URL
 
 interface Ticket {
-  id: string
-  ticket_number: string
-  title: string
-  description: string
-  domain: string
-  priority: string
-  status: string
-  complexity: string
-  ai_diagnosis: string
-  ai_confidence: number
-  steps_tried: string
-  resolution_notes: string
-  cnn_image_result: string
-  sla_deadline: string
-  sla_breached: boolean
-  user_name: string
-  user_email: string
-  user_city: string
-  user_country: string
-  user_timezone: string
-  created_at: string
+  id: string; ticket_number: string; title: string; description: string
+  domain: string; priority: string; status: string; complexity: string
+  ai_diagnosis: string; steps_tried: string; resolution_notes: string
+  cnn_image_result: string; sla_deadline: string; sla_breached: boolean
+  user_name: string; user_email: string; user_city: string
+  user_country: string; user_timezone: string; created_at: string
 }
-
 interface Stats {
-  total_resolved: number
-  active_tickets: number
-  avg_resolution_time: number
-  sla_compliance_rate: number
-  this_week_resolved: number
+  total_resolved: number; active_tickets: number
+  avg_resolution_time: number; sla_compliance_rate: number; this_week_resolved: number
+}
+interface KBResult {
+  content: string; title: string; doc_id: string
+  domain: string; cosine_similarity: number; filename: string
 }
 
-const priorityColor = (p: string) =>
-  p === 'critical' ? '#ef4444' : p === 'high' ? '#f97316' : p === 'medium' ? '#eab308' : '#6b7280'
-
-const statusColor = (s: string) =>
-  s === 'resolved' ? '#4d9e78' : s === 'in_progress' ? '#3b82f6' : s === 'open' ? '#f97316' : '#6b7280'
-
-const domainLabel = (d: string) => ({
+const pColorVar = (p: string) =>
+  p === 'critical' ? 'var(--crit)' : p === 'high' ? 'var(--warn)' : p === 'medium' ? '#2a6bab' : 'var(--fg-mute)'
+const pPill = (p: string) =>
+  p === 'critical' ? 'pill-crit' : p === 'high' ? 'pill-warn' : p === 'medium' ? 'pill-grn' : ''
+const sPill = (s: string) =>
+  s === 'resolved' ? 'pill-ok' : s === 'in_progress' ? 'pill-grn' : s === 'open' ? 'pill-warn' : ''
+const dLabel = (d: string) => ({
   networking: 'Networking', hardware: 'Hardware', software: 'Software',
   security: 'Security', email_communication: 'Email & Comm',
-  identity_access: 'Identity & Access', database: 'Database',
-  cloud: 'Cloud', infrastructure: 'Infrastructure', devops: 'DevOps',
-  erp_business_apps: 'ERP & Business', endpoint_management: 'Endpoint Mgmt',
-  other: 'Other',
+  identity_access: 'Identity & Access', database: 'Database', cloud: 'Cloud',
+  infrastructure: 'Infrastructure', devops: 'DevOps',
+  erp_business_apps: 'ERP & Business', endpoint_management: 'Endpoint Mgmt', other: 'Other',
 }[d] || d)
+const simColor = (s: number) => s >= 80 ? 'var(--ok)' : s >= 60 ? 'var(--warn)' : s >= 40 ? '#2a6bab' : 'var(--fg-mute)'
+const simLabel = (s: number) => s >= 80 ? 'High' : s >= 60 ? 'Good' : s >= 40 ? 'Fair' : 'Low'
 
-// ── Screenshot with authenticated blob fetch ──────────────────────────────
-function ScreenshotImage({ url, dark }: { url: string; dark: boolean }) {
-  const [blobSrc, setBlobSrc] = useState<string | null>(null)
-  const [state, setState]     = useState<'loading' | 'ready' | 'error'>('loading')
-
-  useEffect(() => {
-    let revoke = ''
-    setState('loading')
-    setBlobSrc(null)
-    const token = localStorage.getItem('access_token')
-    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => { if (!r.ok) throw new Error('failed'); return r.blob() })
-      .then(blob => {
-        revoke = URL.createObjectURL(blob)
-        setBlobSrc(revoke)
-        setState('ready')
-      })
-      .catch(() => setState('error'))
-    return () => { if (revoke) URL.revokeObjectURL(revoke) }
-  }, [url])
-
-  if (state === 'loading') return (
-    <div style={{ padding: '20px', textAlign: 'center', background: dark ? '#0a0a0a' : '#f0f0f0', borderRadius: 8, border: '1px solid rgba(23,77,56,0.2)', fontSize: 12, color: 'rgba(77,158,120,0.6)' }}>
-      Loading screenshot...
-    </div>
-  )
-  if (state === 'error' || !blobSrc) return (
-    <div style={{ padding: '14px', textAlign: 'center', background: dark ? 'rgba(255,255,255,0.02)' : '#f7f7f7', borderRadius: 8, border: '1px solid rgba(239,68,68,0.15)', fontSize: 12, color: '#ef4444' }}>
-      Could not load screenshot
-    </div>
-  )
-  return (
-    <img src={blobSrc} alt="User screenshot" style={{ width: '100%', borderRadius: 8, border: '1px solid rgba(23,77,56,0.3)', display: 'block', maxHeight: 300, objectFit: 'contain', background: dark ? '#0a0a0a' : '#f0f0f0' }}/>
-  )
-}
-
-// ── Live clock ────────────────────────────────────────────────────────────
-function LiveClock({ timezone, label, large = false }: { timezone: string; label: string; large?: boolean }) {
+function LiveClock({ tz, label }: { tz: string; label: string }) {
   const [now, setNow] = useState(new Date())
   useEffect(() => { const i = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(i) }, [])
-  const time = (() => { try { return now.toLocaleTimeString('en-US', { timeZone: timezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) } catch { return '--:--:--' } })()
-  const date = (() => { try { return now.toLocaleDateString('en-US', { timeZone: timezone, weekday: 'short', month: 'short', day: 'numeric' }) } catch { return '' } })()
-
-  if (large) return (
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(237,232,224,0.45)', marginBottom: 6, fontWeight: 600 }}>{label}</div>
-      <div style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 26, fontWeight: 500, color: '#ede8e0', lineHeight: 1, marginBottom: 5, fontVariantNumeric: 'tabular-nums' }}>{time}</div>
-      <div style={{ fontSize: 11, color: 'rgba(237,232,224,0.38)' }}>{date}</div>
-      <div style={{ fontSize: 9, color: 'rgba(237,232,224,0.22)', marginTop: 2 }}>{timezone}</div>
+  const time = (() => { try { return now.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) } catch { return '--:--:--' } })()
+  const date = (() => { try { return now.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' }) } catch { return '' } })()
+  return (
+    <div style={{ textAlign: 'center', minWidth: 140 }}>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--fg-mute)', marginBottom: 2, fontFamily: '"JetBrains Mono",monospace' }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 600, fontFamily: '"JetBrains Mono",monospace', color: 'var(--fg)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>{time}</div>
+      <div style={{ fontSize: 10, color: 'var(--fg-mute)', marginTop: 2 }}>{date} · {tz}</div>
     </div>
   )
-  return <span style={{ fontSize: 11, color: '#4d9e78', fontFamily: 'monospace' }}>{time}</span>
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────
-export default function EngineerDashboardPage() {
-  const [tickets, setTickets]         = useState<Ticket[]>([])
-  const [stats, setStats]             = useState<Stats | null>(null)
-  const [loading, setLoading]         = useState(true)
-  const [dark, setDark]               = useState(true)
-  const [selected, setSelected]       = useState<Ticket | null>(null)
-  const [updating, setUpdating]       = useState(false)
-  const [notes, setNotes]             = useState('')
-  const [engineerTimezone, setEngineerTimezone] = useState('UTC')
-  const [availability, setAvailability] = useState('available')
-  const [mounted, setMounted]         = useState(false)
-
-  // ── Theme: read once on mount, apply to body + state ─────────────────
+function ScreenshotImage({ url }: { url: string }) {
+  const [src, setSrc] = useState<string | null>(null)
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   useEffect(() => {
-    const saved = localStorage.getItem('engineer_theme')
-    const isDark = saved !== 'light'
-    setDark(isDark)
-    document.body.style.background = isDark ? '#080808' : '#f4f3ef'
-    document.body.style.transition = 'background .3s'
-    setMounted(true)
-    fetchProfile()
-    fetchData()
-    const interval = setInterval(fetchData, 30000)
-    return () => clearInterval(interval)
-  }, [])
+    let rev = ''; setState('loading'); setSrc(null)
+    const token = localStorage.getItem('access_token')
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => { if (!r.ok) throw new Error(); return r.blob() })
+      .then(b => { rev = URL.createObjectURL(b); setSrc(rev); setState('ready') })
+      .catch(() => setState('error'))
+    return () => { if (rev) URL.revokeObjectURL(rev) }
+  }, [url])
+  if (state === 'loading') return <div className="kb-c" style={{ textAlign: 'center' }}>Loading screenshot...</div>
+  if (state === 'error' || !src) return <div className="kb-c" style={{ textAlign: 'center', color: 'var(--crit)' }}>Screenshot unavailable</div>
+  return <img src={src} alt="screenshot" style={{ width: '100%', borderRadius: 4, border: '1px solid var(--brd)', maxHeight: 220, objectFit: 'contain', background: 'var(--bg)' }} />
+}
 
-  const applyTheme = (isDark: boolean) => {
-    setDark(isDark)
-    localStorage.setItem('engineer_theme', isDark ? 'dark' : 'light')
-    document.body.style.background = isDark ? '#080808' : '#f4f3ef'
-  }
-
-  const toggleTheme = () => applyTheme(!dark)
+export default function EngineerDashboardPage() {
+  const [tickets, setTickets]     = useState<Ticket[]>([])
+  const [stats, setStats]         = useState<Stats | null>(null)
+  const [loading, setLoading]     = useState(true)
+  const [theme, setTheme]         = useState('light')
+  const [selected, setSelected]   = useState<Ticket | null>(null)
+  const [tab, setTab]             = useState<'queue' | 'kb' | 'history'>('queue')
+  const [updating, setUpdating]   = useState(false)
+  const [notes, setNotes]         = useState('')
+  const [engTz, setEngTz]         = useState('UTC')
+  const [engName, setEngName]     = useState('')
+  const [engId, setEngId]         = useState('')
+  const [availability, setAvailability] = useState('available')
+  const [mounted, setMounted]     = useState(false)
+  const [kbResults, setKbResults] = useState<KBResult[]>([])
+  const [kbLoading, setKbLoading] = useState(false)
+  const [kbExpanded, setKbExpanded] = useState<number | null>(null)
+  const [kbSearch, setKbSearch]   = useState('')
+  const [kbSearchRes, setKbSearchRes] = useState<KBResult[]>([])
+  const [kbSearching, setKbSearching] = useState(false)
+  const [toast, setToast]         = useState<{ title: string; desc: string; type: string } | null>(null)
 
   const token = () => localStorage.getItem('access_token') || ''
   const hdrs  = useCallback(() => ({ Authorization: `Bearer ${token()}` }), [])
 
+  useEffect(() => {
+    const saved = localStorage.getItem('eng_theme') || 'light'
+    setTheme(saved)
+    document.documentElement.setAttribute('data-theme', saved)
+    setMounted(true)
+    fetchProfile(); fetchData()
+    const i = setInterval(fetchData, 30000)
+    return () => clearInterval(i)
+  }, [])
+
+  useEffect(() => {
+    if (selected) fetchKB(selected)
+    else setKbResults([])
+  }, [selected])
+
+  const toggleTheme = () => {
+    const next = theme === 'light' ? 'dark' : 'light'
+    setTheme(next)
+    localStorage.setItem('eng_theme', next)
+    document.documentElement.setAttribute('data-theme', next)
+  }
+
+  const showToast = (title: string, desc: string, type = 'ok') => {
+    setToast({ title, desc, type })
+    setTimeout(() => setToast(null), 4500)
+  }
+
   const fetchProfile = async () => {
     try {
-      const res = await fetch(`${API}/api/v1/engineer/profile`, { headers: hdrs() })
-      if (res.status === 401) { localStorage.clear(); window.location.replace('/auth/login'); return }
-      if (res.ok) {
-        const d = await res.json()
-        setEngineerTimezone(d.timezone || 'UTC')
+      const r = await fetch(`${API}/api/v1/engineer/profile`, { headers: hdrs() })
+      if (r.status === 401) { localStorage.clear(); window.location.replace('/auth/login'); return }
+      if (r.ok) {
+        const d = await r.json()
+        setEngTz(d.timezone || 'UTC')
+        setEngName(d.full_name || '')
+        setEngId(d.engineer_id || '')
         setAvailability(d.availability_status || 'available')
       }
     } catch {}
@@ -158,74 +137,91 @@ export default function EngineerDashboardPage() {
 
   const fetchData = async () => {
     try {
-      const [tRes, sRes] = await Promise.all([
+      const [tR, sR] = await Promise.all([
         fetch(`${API}/api/v1/engineer/tickets`, { headers: hdrs() }),
-        fetch(`${API}/api/v1/engineer/stats`,   { headers: hdrs() }),
+        fetch(`${API}/api/v1/engineer/stats`, { headers: hdrs() }),
       ])
-      if (tRes.status === 401) { localStorage.clear(); window.location.replace('/auth/login'); return }
-      if (tRes.ok) setTickets(await tRes.json())
-      if (sRes.ok) setStats(await sRes.json())
+      if (tR.status === 401) { localStorage.clear(); window.location.replace('/auth/login'); return }
+      if (tR.ok) setTickets(await tR.json())
+      if (sR.ok) setStats(await sR.json())
     } catch {} finally { setLoading(false) }
   }
 
-  const setAvail = async (status: string) => {
+  const fetchKB = async (ticket: Ticket) => {
+    setKbLoading(true); setKbResults([])
+    try {
+      const r = await fetch(`${API}/api/v1/knowledge/ticket-similarity/${ticket.id}`, { headers: hdrs() })
+      if (r.ok) { const d = await r.json(); setKbResults(d.results || []) }
+    } catch {} finally { setKbLoading(false) }
+  }
+
+  const setAvail = async (s: string) => {
     try {
       await fetch(`${API}/api/v1/engineer/availability`, {
-        method: 'PATCH',
-        headers: { ...hdrs(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ availability_status: status }),
+        method: 'PATCH', headers: { ...hdrs(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ availability_status: s }),
       })
-      setAvailability(status)
+      setAvailability(s)
     } catch {}
   }
 
-  const updateTicket = async (ticketId: string, status: string, resNotes?: string) => {
-    if (status === 'resolved' && !resNotes?.trim()) { alert('Please add resolution notes before resolving.'); return }
+  const resolveTicket = async () => {
+    if (!selected || !notes.trim()) return
     setUpdating(true)
     try {
-      const endpoint = status === 'resolved'
-        ? `${API}/api/v1/engineer/tickets/${ticketId}/resolve`
-        : `${API}/api/v1/engineer/tickets/${ticketId}/status`
-      const body = status === 'resolved' ? { resolution_notes: resNotes } : { status }
-      const res = await fetch(endpoint, {
-        method: 'PATCH',
-        headers: { ...hdrs(), 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+      const r = await fetch(`${API}/api/v1/engineer/tickets/${selected.id}/resolve`, {
+        method: 'PATCH', headers: { ...hdrs(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolution_notes: notes }),
       })
-      if (res.ok) { fetchData(); setSelected(null); setNotes('') }
+      if (r.ok) {
+        fetchData(); setSelected(null); setNotes('')
+        showToast('Ticket resolved', 'Resolution notes indexed to KB.', 'ok')
+      }
     } catch {} finally { setUpdating(false) }
   }
 
-  const getScreenshotUrl = (cnnResult: string | null) => {
-    if (!cnnResult) return null
-    const filename = cnnResult.split(' |')[0].trim()
-    if (!filename.match(/\.(png|jpg|jpeg|webp)$/i)) return null
-    return `${API}/api/v1/chat/screenshot/${filename}`
+  const markInProgress = async () => {
+    if (!selected) return
+    try {
+      await fetch(`${API}/api/v1/engineer/tickets/${selected.id}/status`, {
+        method: 'PATCH', headers: { ...hdrs(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'in_progress' }),
+      })
+      fetchData()
+    } catch {}
   }
 
-  // ── Theme tokens ──────────────────────────────────────────────────────
-  const T = {
-    bg:        dark ? '#080808' : '#f4f3ef',
-    header:    dark ? '#0c0c0c' : '#fafaf8',
-    card:      dark ? '#111111' : '#ffffff',
-    cardHover: dark ? '#171717' : '#f0efe9',
-    border:    dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.09)',
-    text:      dark ? '#ede8e0' : '#1a1a1a',
-    muted:     dark ? 'rgba(237,232,224,0.4)' : 'rgba(26,26,26,0.45)',
-    accent:    dark ? 'rgba(23,77,56,0.18)' : 'rgba(23,77,56,0.08)',
-    gl:        '#4d9e78',
-    secBg:     dark ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.025)',
-    inp: {
-      width: '100%', padding: '10px 14px',
-      background: dark ? 'rgba(255,255,255,0.04)' : '#f4f3ef',
-      border: `1px solid ${dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.12)'}`,
-      color: dark ? '#ede8e0' : '#1a1a1a',
-      fontSize: 13, outline: 'none', borderRadius: 6,
-      fontFamily: '"DM Sans", sans-serif', resize: 'vertical' as const,
-    } as React.CSSProperties,
+  const searchKB = async () => {
+    if (!kbSearch.trim()) return
+    setKbSearching(true); setKbSearchRes([])
+    try {
+      const r = await fetch(`${API}/api/v1/knowledge/search`, {
+        method: 'POST', headers: { ...hdrs(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: kbSearch, n_results: 8 }),
+      })
+      if (r.ok) { const d = await r.json(); setKbSearchRes(d.results || []) }
+    } catch {} finally { setKbSearching(false) }
   }
 
-  const openTickets     = tickets.filter(t => t.status === 'open' || t.status === 'in_progress')
+  const getScreenshotUrl = (cnn: string | null) => {
+    if (!cnn) return null
+    const f = cnn.split(' |')[0].trim()
+    if (!f.match(/\.(png|jpg|jpeg|webp)$/i)) return null
+    return `${API}/api/v1/chat/screenshot/${f}`
+  }
+
+  // Format created_at in user's timezone
+  const fmtTime = (iso: string, tz?: string) => {
+    try {
+      return new Date(iso).toLocaleString('en-US', {
+        timeZone: tz || 'UTC',
+        month: 'short', day: 'numeric', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
+      })
+    } catch { return iso }
+  }
+
+  const openTickets     = tickets.filter(t => t.status !== 'resolved')
   const resolvedTickets = tickets.filter(t => t.status === 'resolved')
 
   if (!mounted) return null
@@ -233,304 +229,520 @@ export default function EngineerDashboardPage() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=DM+Sans:wght@300;400;500;600&display=swap');
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:.4} }
-        @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-        ::-webkit-scrollbar { width: 3px; }
-        ::-webkit-scrollbar-thumb { background: ${dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.12)'}; border-radius: 2px; }
-        .tr  { transition: background .12s, border-color .12s; cursor: pointer; }
-        .tr:hover  { background: ${T.cardHover} !important; }
-        .tr.sel    { border-left-color: #174D38 !important; background: ${T.accent} !important; }
-        .ab  { transition: all .12s; cursor: pointer; border: 1px solid transparent; }
-        .sc  { transition: transform .18s; }
-        .sc:hover  { transform: translateY(-2px); }
-        .hbtn { transition: opacity .12s; cursor: pointer; }
-        .hbtn:hover { opacity: .78; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+        :root,[data-theme=light]{--bg:#F2F2F2;--bg-elev:#FFFFFF;--bg-sun:#EBEBEB;--fg:#141414;--fg-dim:#3a3a3a;--fg-mute:#6b6b6b;--fg-faint:#a8a8a8;--brd:#CBCBCB;--brd-s:#b5b5b5;--grn:#174D38;--grn-lt:#1f6a4d;--grn-w:#e8f2ed;--red:#4D1717;--red-w:#f5eaea;--ok:#1a7a4a;--ok-w:#e6f4ed;--warn:#8a5a00;--warn-w:#fdf4e3;--crit:#4D1717;--crit-w:#f5eaea;--shadow:0 1px 3px rgba(0,0,0,.07);--shadow-md:0 4px 14px rgba(0,0,0,.09);--shadow-pop:0 12px 36px rgba(0,0,0,.14)}
+        [data-theme=dark]{--bg:#0e1410;--bg-elev:#141d18;--bg-sun:#111910;--fg:#e8ede9;--fg-dim:#b0bab3;--fg-mute:#7a897e;--fg-faint:#4a5a50;--brd:#233028;--brd-s:#2e3d34;--grn:#2a8a5e;--grn-lt:#33a872;--grn-w:#0f2318;--red:#9b3535;--red-w:#1f0e0e;--ok:#2a8a5e;--ok-w:#0f2318;--warn:#c8880a;--warn-w:#1f1600;--crit:#9b3535;--crit-w:#1f0e0e;--shadow:0 1px 3px rgba(0,0,0,.35);--shadow-md:0 4px 14px rgba(0,0,0,.45);--shadow-pop:0 12px 36px rgba(0,0,0,.55)}
+        *{box-sizing:border-box;margin:0;padding:0}
+        html,body,#__next{height:100vh;overflow:hidden}
+        body{font-family:"Inter",-apple-system,sans-serif;font-size:13px;line-height:1.45;color:var(--fg);background:var(--bg);-webkit-font-smoothing:antialiased;transition:background .2s,color .2s}
+        .shell{display:grid;grid-template-columns:220px 1fr;height:100vh;overflow:hidden}
+        .sidebar{background:var(--grn);display:flex;flex-direction:column;overflow:hidden}
+        .sb-head{height:48px;padding:0 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,.1);flex-shrink:0}
+        .logomark{width:24px;height:24px;border-radius:5px;background:rgba(255,255,255,.18);color:#fff;display:grid;place-items:center;font-family:"JetBrains Mono",monospace;font-weight:700;font-size:12px;flex-shrink:0}
+        .nav-lbl{padding:10px 16px 3px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.35);font-weight:600;font-family:"JetBrains Mono",monospace}
+        .nav-item{display:flex;align-items:center;gap:10px;padding:6px 16px;height:32px;font-size:13px;color:rgba(255,255,255,.65);cursor:pointer;border-left:2px solid transparent;user-select:none;transition:all .12s}
+        .nav-item:hover{background:rgba(255,255,255,.08);color:#fff}
+        .nav-item.active{background:rgba(255,255,255,.16);color:#fff;border-left-color:#fff;font-weight:500}
+        .nav-badge{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:10px;color:rgba(255,255,255,.45);background:rgba(255,255,255,.1);padding:1px 7px;border-radius:10px}
+        .nav-item.active .nav-badge{color:rgba(255,255,255,.85)}
+        .sb-foot{margin-top:auto;border-top:1px solid rgba(255,255,255,.1);padding:12px 16px;display:flex;align-items:center;gap:10px}
+        .av{width:28px;height:28px;border-radius:5px;display:grid;place-items:center;font-size:11px;font-weight:700;flex-shrink:0;color:#fff;background:rgba(255,255,255,.2)}
+        .u-name{font-size:12px;font-weight:500;color:#fff;line-height:1.2}
+        .u-role{font-size:10px;color:rgba(255,255,255,.45);font-family:"JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.04em}
+        .theme-btn{width:28px;height:28px;border-radius:4px;display:grid;place-items:center;cursor:pointer;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.15);color:#fff;margin-left:auto;transition:background .15s}
+        .theme-btn:hover{background:rgba(255,255,255,.22)}
+        .main{display:grid;grid-template-rows:48px 1fr;overflow:hidden}
+        .topbar{height:48px;background:var(--bg-elev);border-bottom:1px solid var(--brd);display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0;box-shadow:var(--shadow)}
+        .crumbs{font-size:12px;color:var(--fg-mute);display:flex;align-items:center;gap:6px}
+        .content{overflow:hidden;background:var(--bg)}
+        .split{display:grid;grid-template-columns:1fr 440px;height:100%;overflow:hidden}
+        .split-l{display:flex;flex-direction:column;overflow:hidden}
+        .split-r{border-left:1px solid var(--brd);background:var(--bg-elev);display:flex;flex-direction:column;overflow:hidden}
+        .fbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--brd);background:var(--bg-elev);height:42px;flex-shrink:0}
+        .btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:4px;border:1px solid var(--brd);background:var(--bg-elev);color:var(--fg);font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background .1s}
+        .btn:hover{background:var(--bg-sun)}
+        .btn-p{background:var(--grn)!important;color:#fff!important;border-color:var(--grn)!important}
+        .btn-p:hover{background:var(--grn-lt)!important}
+        .btn-r{background:var(--red)!important;color:#fff!important;border-color:var(--red)!important}
+        .btn-sm{height:24px;padding:0 8px;font-size:11px}
+        .btn-g{background:transparent!important;border-color:transparent!important;color:var(--fg-mute)!important}
+        .btn-g:hover{background:var(--bg-sun)!important;color:var(--fg)!important}
+        .pill{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:10px;font-size:10px;font-weight:600;font-family:"JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.04em;background:var(--bg-sun);color:var(--fg-dim);border:1px solid var(--brd);white-space:nowrap}
+        .pill-ok{background:var(--ok-w);color:var(--ok);border-color:transparent}
+        .pill-warn{background:var(--warn-w);color:var(--warn);border-color:transparent}
+        .pill-crit{background:var(--crit-w);color:var(--crit);border-color:transparent}
+        .pill-grn{background:var(--grn-w);color:var(--grn);border-color:transparent}
+        .pill-pur{background:#f0edf8;color:#5b3d8a;border-color:transparent}
+        [data-theme=dark] .pill-pur{background:#1e1525;color:#b39ddb}
+        .card{background:var(--bg-elev);border:1px solid var(--brd);border-radius:6px;box-shadow:var(--shadow)}
+        .c-head{padding:10px 14px;border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:10px;min-height:40px}
+        .c-head h3{margin:0;font-size:12px;font-weight:600}
+        table.dt{width:100%;border-collapse:collapse;font-size:12px}
+        table.dt th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-mute);padding:8px 12px;background:var(--bg-sun);border-bottom:1px solid var(--brd);font-weight:600;font-family:"JetBrains Mono",monospace;white-space:nowrap}
+        table.dt td{padding:8px 12px;border-bottom:1px solid var(--brd);vertical-align:middle}
+        table.dt tr{cursor:pointer;transition:background .1s}
+        table.dt tr:hover td{background:var(--bg-sun)}
+        table.dt tr.sel td{background:var(--grn-w)}
+        .bar{height:5px;background:var(--bg-sun);border-radius:3px;overflow:hidden;border:1px solid var(--brd)}
+        .bar-f{height:100%;transition:width .4s}
+        .kb-c{background:var(--bg-sun);border:1px solid var(--brd);border-radius:4px;padding:8px 10px;font-size:12px;color:var(--fg-dim);line-height:1.6}
+        .status-toggle{display:flex;gap:2px;padding:3px;background:var(--bg-sun);border-radius:4px;border:1px solid var(--brd)}
+        .st-opt{padding:4px 10px;border-radius:3px;font-size:10px;font-weight:500;cursor:pointer;color:var(--fg-mute);transition:all .12s;font-family:"JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.04em}
+        .st-opt:hover{color:var(--fg)}
+        .st-opt.on-avail{background:var(--ok-w);color:var(--ok)}
+        .st-opt.on-busy{background:var(--warn-w);color:var(--warn)}
+        .st-opt.on-away{background:var(--crit-w);color:var(--crit)}
+        .chip{display:inline-flex;align-items:center;height:22px;padding:0 10px;border-radius:11px;background:var(--bg-sun);border:1px solid var(--brd);font-size:11px;color:var(--fg-dim);cursor:pointer;font-weight:500;transition:all .1s}
+        .chip:hover,.chip.on{border-color:var(--grn);color:var(--grn);background:var(--grn-w)}
+        .mono{font-family:"JetBrains Mono",monospace}
+        .muted{color:var(--fg-mute)}
+        .small{font-size:11px}
+        .tiny{font-size:10px}
+        .grow{flex:1}
+        .row{display:flex;align-items:center;gap:8px}
+        .trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .fade{animation:fade .25s ease-out both}
+        @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+        .upload-zone{border:1.5px dashed var(--brd);border-radius:6px;padding:18px;text-align:center;color:var(--fg-mute);cursor:pointer;transition:all .2s;margin:8px 0}
+        .upload-zone:hover{border-color:var(--grn);color:var(--grn);background:var(--grn-w)}
+        .toast-tray{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:200;pointer-events:none}
+        .toast{background:var(--bg-elev);border:1px solid var(--brd);border-radius:6px;padding:12px 16px;box-shadow:var(--shadow-pop);font-size:12px;pointer-events:auto;animation:tin .3s ease-out;display:flex;align-items:flex-start;gap:10px;min-width:300px}
+        @keyframes tin{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
+        ::-webkit-scrollbar{width:6px}
+        ::-webkit-scrollbar-track{background:transparent}
+        ::-webkit-scrollbar-thumb{background:var(--brd);border-radius:3px}
+        input,textarea,select{font-family:inherit;font-size:12px;background:var(--bg-sun);border:1px solid var(--brd);color:var(--fg);border-radius:4px;padding:6px 10px;width:100%;outline:none;transition:border-color .15s}
+        input:focus,textarea:focus{border-color:var(--grn)}
+        textarea{resize:vertical;line-height:1.5}
+        hr.div{border:none;border-top:1px solid var(--brd);margin:8px 0}
+        .sec-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-mute);font-family:"JetBrains Mono",monospace;margin-bottom:6px}
+        .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--fg-faint);flex-shrink:0}
+        .dot-ok{background:var(--ok)}.dot-warn{background:var(--warn)}.dot-crit{background:var(--crit)}.dot-grn{background:var(--grn)}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+        .pulse{animation:pulse 1.8s ease-in-out infinite}
       `}</style>
 
-      <div style={{ fontFamily: '"DM Sans", sans-serif', color: T.text, minHeight: '100vh', background: T.bg }}>
+      <div className="shell">
 
-        {/* ── Timezone Strip ── */}
-        <div style={{ background: 'linear-gradient(135deg, #0d2e1f 0%, #091a10 100%)', borderBottom: '1px solid rgba(23,77,56,0.4)', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-around' }}>
-          {[
-            { label: 'Your Time',   tz: engineerTimezone },
-            { label: selected?.user_name ? `${selected.user_name.split(' ')[0]}'s Time` : "User's Time", tz: selected?.user_timezone || 'UTC' },
-            { label: 'UTC',         tz: 'UTC' },
-            { label: 'IST',         tz: 'Asia/Kolkata' },
-          ].map((c, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
-              <LiveClock timezone={c.tz} label={c.label} large/>
-              {i < 3 && <div style={{ width: 1, height: 44, background: 'rgba(255,255,255,0.07)', margin: '0 24px' }}/>}
+        {/* ── Sidebar ── */}
+        <div className="sidebar">
+          <div className="sb-head">
+            <div className="logomark">N</div>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: '#fff', letterSpacing: '-.01em' }}>NexusDesk</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,.45)', fontFamily: '"JetBrains Mono",monospace', textTransform: 'uppercase', letterSpacing: '.06em' }}>Engineer</div>
             </div>
-          ))}
-        </div>
-
-        {/* ── Header ── */}
-        <div style={{ padding: '18px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.header, borderBottom: `1px solid ${T.border}` }}>
-          <div>
-            <h1 style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 28, fontWeight: 500, color: T.text, marginBottom: 2, letterSpacing: '-0.01em' }}>Dashboard</h1>
-            <p style={{ fontSize: 12, color: T.muted }}>{openTickets.length} active · {resolvedTickets.length} resolved</p>
+            <div className="theme-btn" onClick={toggleTheme} title="Toggle theme">
+              {theme === 'light'
+                ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+                : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>}
+            </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* Availability */}
-            <div style={{ display: 'flex', gap: 4, padding: '5px 6px', background: T.card, border: `1px solid ${T.border}`, borderRadius: 8 }}>
-              {[
-                { s: 'available', l: 'Available', c: '#4d9e78' },
-                { s: 'busy',      l: 'Busy',      c: '#f97316' },
-                { s: 'away',      l: 'Away',       c: '#6b7280' },
-              ].map(o => (
-                <button key={o.s} className="ab" onClick={() => setAvail(o.s)}
-                  style={{ padding: '5px 11px', background: availability === o.s ? `${o.c}18` : 'transparent', borderColor: availability === o.s ? o.c : 'transparent', color: availability === o.s ? o.c : T.muted, fontSize: 11, fontWeight: availability === o.s ? 700 : 400, borderRadius: 5, fontFamily: 'inherit' }}>
-                  {availability === o.s && <span style={{ display: 'inline-block', width: 5, height: 5, borderRadius: '50%', background: o.c, marginRight: 5, verticalAlign: 'middle', animation: o.s === 'available' ? 'pulse 2s infinite' : 'none' }}/>}
-                  {o.l}
-                </button>
-              ))}
-            </div>
-
-            {/* Theme toggle */}
-            <button className="hbtn" onClick={toggleTheme}
-              style={{ padding: '6px 12px', background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontFamily: 'inherit', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-              {dark
-                ? <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>Light</>
-                : <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>Dark</>
-              }
-            </button>
-
-            <button className="hbtn" onClick={fetchData}
-              style={{ padding: '6px 12px', background: T.accent, border: '1px solid rgba(23,77,56,.3)', borderRadius: 6, color: T.gl, fontFamily: 'inherit', fontSize: 12 }}>
-              ↻ Refresh
-            </button>
-
-            <button className="hbtn" onClick={() => { localStorage.clear(); window.location.replace('/auth/login') }}
-              style={{ padding: '6px 12px', background: 'transparent', border: '1px solid rgba(160,64,64,.3)', borderRadius: 6, color: '#a04040', fontFamily: 'inherit', fontSize: 12 }}>
-              Sign Out
-            </button>
-          </div>
-        </div>
-
-        {/* ── Body ── */}
-        <div style={{ padding: '24px 32px 40px' }}>
-
-          {/* Stats */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 28 }}>
-            {[
-              { v: stats?.active_tickets ?? 0,             l: 'Active Tickets', c: '#f97316' },
-              { v: stats?.this_week_resolved ?? 0,          l: 'This Week',      c: '#3b82f6' },
-              { v: stats?.total_resolved ?? 0,              l: 'Total Resolved', c: T.gl },
-              { v: `${stats?.sla_compliance_rate ?? 100}%`, l: 'SLA Compliance', c: '#4d9e78' },
-              { v: `${stats?.avg_resolution_time ?? 0}m`,   l: 'Avg Resolution', c: '#a855f7' },
-            ].map((s, i) => (
-              <div key={i} className="sc" style={{ background: T.card, border: `1px solid ${T.border}`, padding: '18px 16px', borderRadius: 10, position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, ${s.c}, transparent)` }}/>
-                <div style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 30, fontWeight: 500, color: s.c, lineHeight: 1, marginBottom: 6 }}>{loading ? '—' : s.v}</div>
-                <div style={{ fontSize: 10, color: T.muted, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{s.l}</div>
+          <div style={{ marginTop: 8 }}>
+            <div className="nav-lbl">Work</div>
+            {([
+              { id: 'queue', label: 'Ticket Queue', icon: 'inbox' },
+              { id: 'kb',    label: 'Knowledge Base', icon: 'book' },
+              { id: 'history', label: 'History', icon: 'clock' },
+            ] as const).map(n => (
+              <div key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} onClick={() => setTab(n.id)}>
+                {n.id === 'queue' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>}
+                {n.id === 'kb'    && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>}
+                {n.id === 'history' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>}
+                {n.label}
+                {n.id === 'queue' && <span className="nav-badge">{openTickets.length}</span>}
               </div>
             ))}
           </div>
 
-          {/* Queue + Detail */}
-          <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 1fr' : '1fr', gap: 20, alignItems: 'start' }}>
-
-            {/* ── Queue ── */}
+          <div className="sb-foot">
+            <div className="av">{engName?.charAt(0)?.toUpperCase() || 'E'}</div>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: T.muted, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span>Ticket Queue</span>
-                <span style={{ fontSize: 10, padding: '2px 8px', background: 'rgba(249,115,22,0.12)', color: '#f97316', borderRadius: 12, fontWeight: 700 }}>{openTickets.length} open</span>
-              </div>
+              <div className="u-name">{engName || 'Engineer'}</div>
+              <div className="u-role">{engId}</div>
+            </div>
+          </div>
+        </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {loading ? (
-                  <div style={{ padding: '40px', textAlign: 'center', color: T.muted, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10 }}>
-                    Loading tickets...
-                  </div>
-                ) : openTickets.length === 0 ? (
-                  <div style={{ padding: '48px 24px', textAlign: 'center', background: T.card, border: `1px solid ${T.border}`, borderRadius: 10 }}>
-                    <div style={{ width: 48, height: 48, borderRadius: 12, background: T.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4d9e78" strokeWidth="1.8"><polyline points="20 6 9 17 4 12"/></svg>
-                    </div>
-                    <div style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 18, fontWeight: 500, color: T.text, marginBottom: 6 }}>All caught up</div>
-                    <div style={{ fontSize: 13, color: T.muted }}>No open tickets assigned to you.</div>
-                  </div>
-                ) : openTickets.map(ticket => (
-                  <div key={ticket.id}
-                    className={`tr ${selected?.id === ticket.id ? 'sel' : ''}`}
-                    onClick={() => { setSelected(selected?.id === ticket.id ? null : ticket); setNotes('') }}
-                    style={{ background: T.card, border: `1px solid ${selected?.id === ticket.id ? 'rgba(23,77,56,.4)' : T.border}`, borderLeft: `3px solid ${priorityColor(ticket.priority)}`, padding: '14px 16px', borderRadius: 10, position: 'relative', overflow: 'hidden' }}>
-                    {selected?.id === ticket.id && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: 'linear-gradient(90deg,rgba(23,77,56,.5),transparent)' }}/>}
+        {/* ── Main ── */}
+        <div className="main">
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: T.gl, fontFamily: 'monospace', letterSpacing: '0.06em' }}>{ticket.ticket_number}</span>
-                      <div style={{ display: 'flex', gap: 5 }}>
-                        <span style={{ fontSize: 9, padding: '2px 7px', background: `${priorityColor(ticket.priority)}18`, color: priorityColor(ticket.priority), borderRadius: 3, fontWeight: 700, textTransform: 'uppercase' }}>{ticket.priority}</span>
-                        <span style={{ fontSize: 9, padding: '2px 7px', background: `${statusColor(ticket.status)}18`, color: statusColor(ticket.status), borderRadius: 3, textTransform: 'uppercase' }}>{ticket.status.replace('_', ' ')}</span>
-                      </div>
-                    </div>
+          {/* Topbar */}
+          <div className="topbar">
+            <div className="crumbs">
+              <span>NexusDesk</span>
+              <span style={{ color: 'var(--fg-faint)' }}>/</span>
+              <b>{{ queue: 'Ticket Queue', kb: 'Knowledge Base', history: 'History' }[tab]}</b>
+            </div>
+            <span className="grow" />
 
-                    <div style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 15, fontWeight: 500, color: T.text, marginBottom: 8, lineHeight: 1.3 }}>{ticket.title}</div>
-
-                    <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <span style={{ fontSize: 10, padding: '2px 7px', background: T.accent, color: T.gl, borderRadius: 3 }}>{domainLabel(ticket.domain)}</span>
-                      <span style={{ fontSize: 10, color: T.muted }}>👤 {ticket.user_name}</span>
-                      {ticket.user_city && <span style={{ fontSize: 10, color: T.muted }}>📍 {ticket.user_city}, {ticket.user_country}</span>}
-                      <span style={{ fontSize: 10, color: T.gl }}>🕐 <LiveClock timezone={ticket.user_timezone} label=""/></span>
-                      {ticket.cnn_image_result && <span style={{ fontSize: 9, padding: '2px 6px', background: 'rgba(168,85,247,.12)', color: '#a855f7', borderRadius: 3 }}>📸 Screenshot</span>}
-                      {ticket.sla_breached && <span style={{ fontSize: 9, padding: '2px 6px', background: 'rgba(239,68,68,.12)', color: '#ef4444', borderRadius: 3, fontWeight: 700 }}>SLA</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Resolved */}
-              {resolvedTickets.length > 0 && (
-                <div style={{ marginTop: 24 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: T.muted, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span>Recently Resolved</span>
-                    <span style={{ fontSize: 10, padding: '2px 8px', background: 'rgba(77,158,120,0.12)', color: '#4d9e78', borderRadius: 12, fontWeight: 700 }}>{resolvedTickets.length}</span>
-                  </div>
-                  {resolvedTickets.slice(0, 5).map(ticket => (
-                    <div key={ticket.id} className="tr"
-                      onClick={() => { setSelected(selected?.id === ticket.id ? null : ticket); setNotes('') }}
-                      style={{ background: T.card, border: `1px solid ${T.border}`, padding: '10px 14px', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, opacity: 0.72 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: T.gl, fontFamily: 'monospace' }}>{ticket.ticket_number}</span>
-                        <span style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 14, color: T.text }}>{ticket.title}</span>
-                      </div>
-                      <span style={{ fontSize: 10, padding: '2px 8px', background: 'rgba(77,158,120,0.12)', color: '#4d9e78', borderRadius: 3, fontWeight: 600 }}>Resolved</span>
-                    </div>
-                  ))}
+            <div className="status-toggle" style={{ marginLeft: 12 }}>
+              {[
+                { s: 'available', l: 'Avail', c: 'on-avail' },
+                { s: 'busy',      l: 'Busy',  c: 'on-busy' },
+                { s: 'away',      l: 'Away',  c: 'on-away' },
+              ].map(o => (
+                <div key={o.s} className={`st-opt ${availability === o.s ? o.c : ''}`} onClick={() => setAvail(o.s)}>
+                  {availability === o.s && <span className={`dot dot-${o.s === 'available' ? 'ok' : o.s === 'busy' ? 'warn' : 'crit'} pulse`} style={{ marginRight: 4 }} />}
+                  {o.l}
                 </div>
-              )}
+              ))}
             </div>
 
-            {/* ── Detail Panel ── */}
-            {selected && (
-              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: 'hidden', position: 'sticky', top: 20, maxHeight: 'calc(100vh - 160px)', display: 'flex', flexDirection: 'column', animation: 'fadeUp .2s ease' }}>
+            <button className="btn btn-g btn-sm" onClick={() => { localStorage.clear(); window.location.replace('/auth/login') }}>Sign out</button>
+          </div>
 
-                {/* Green header */}
-                <div style={{ background: 'linear-gradient(135deg, #174D38 0%, #0d2e1f 100%)', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: 'rgba(237,232,224,0.55)', letterSpacing: '0.1em', marginBottom: 5, fontFamily: 'monospace' }}>{selected.ticket_number}</div>
-                    <div style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 18, fontWeight: 500, color: '#ede8e0', lineHeight: 1.3, maxWidth: 310 }}>{selected.title}</div>
+          {/* ── Content ── */}
+          <div className="content" style={{ height: 'calc(100vh - 48px)', overflowY: 'hidden' }}>
+
+            {/* ── QUEUE TAB ── */}
+            {tab === 'queue' && (
+              <div className="split" style={{ height: '100%' }}>
+
+                {/* Left — ticket list */}
+                <div className="split-l">
+                  {/* Stats bar */}
+                  {stats && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 1, background: 'var(--brd)', borderBottom: '1px solid var(--brd)', flexShrink: 0 }}>
+                      {[
+                        { l: 'Active',     v: stats.active_tickets,        c: 'var(--warn)' },
+                        { l: 'This Week',  v: stats.this_week_resolved,     c: 'var(--ok)' },
+                        { l: 'Total',      v: stats.total_resolved,          c: 'var(--grn)' },
+                        { l: 'SLA',        v: `${stats.sla_compliance_rate}%`, c: 'var(--ok)' },
+                        { l: 'Avg',        v: `${stats.avg_resolution_time}m`,  c: '#2a6bab' },
+                      ].map((s, i) => (
+                        <div key={i} style={{ background: 'var(--bg-elev)', padding: '10px 14px' }}>
+                          <div style={{ fontSize: 10, color: 'var(--fg-mute)', fontFamily: '"JetBrains Mono",monospace', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>{s.l}</div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: s.c, fontFamily: '"JetBrains Mono",monospace', letterSpacing: '-.02em' }}>{loading ? '—' : s.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Filter bar */}
+                  <div className="fbar">
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--fg-mute)', fontFamily: '"JetBrains Mono",monospace', textTransform: 'uppercase', letterSpacing: '.06em' }}>Queue</span>
+                    <span className="pill">{openTickets.length} open</span>
+                    <span className="grow" />
+                    <button className="btn btn-sm" onClick={fetchData}>↻ Refresh</button>
                   </div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-                    <span style={{ fontSize: 9, padding: '3px 9px', background: `${priorityColor(selected.priority)}25`, color: priorityColor(selected.priority), borderRadius: 4, fontWeight: 700, textTransform: 'uppercase', border: `1px solid ${priorityColor(selected.priority)}40` }}>{selected.priority}</span>
-                    <button onClick={() => setSelected(null)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'rgba(237,232,224,0.7)', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>×</button>
+
+                  {/* Table */}
+                  <div style={{ flex: 1, overflowY: 'auto' }}>
+                    <table className="dt">
+                      <thead>
+                        <tr>
+                          <th>ID</th><th>Issue</th><th>User</th><th>Domain</th><th>Priority</th><th>Status</th><th>Created</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loading ? (
+                          <tr><td colSpan={7} style={{ textAlign: 'center', padding: 32, color: 'var(--fg-mute)' }}>Loading tickets...</td></tr>
+                        ) : openTickets.length === 0 ? (
+                          <tr><td colSpan={7} style={{ textAlign: 'center', padding: 32, color: 'var(--fg-mute)' }}>All caught up — no open tickets</td></tr>
+                        ) : openTickets.map(t => (
+                          <tr key={t.id} className={selected?.id === t.id ? 'sel' : ''} onClick={() => { setSelected(selected?.id === t.id ? null : t); setNotes('') }}>
+                            <td><span className="mono" style={{ fontSize: 11, fontWeight: 600, color: 'var(--grn)' }}>{t.ticket_number}</span></td>
+                            <td style={{ maxWidth: 220 }}>
+                              <div className="trunc" style={{ fontWeight: 500 }}>{t.title}</div>
+                              {t.cnn_image_result && <span className="pill pill-pur" style={{ marginTop: 3 }}>📸 Screenshot</span>}
+                            </td>
+                            <td>
+                              <div style={{ fontSize: 12 }}>{t.user_name}</div>
+                              {t.user_city && <div className="tiny muted">{t.user_city}</div>}
+                            </td>
+                            <td><span className="pill">{dLabel(t.domain)}</span></td>
+                            <td><span className={`pill ${pPill(t.priority)}`}>{t.priority}</span></td>
+                            <td><span className={`pill ${sPill(t.status)}`}>{t.status.replace('_', ' ')}</span></td>
+                            <td className="small muted mono">{fmtTime(t.created_at, t.user_timezone)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    {/* Resolved section */}
+                    {resolvedTickets.length > 0 && (
+                      <div style={{ padding: '12px 14px', borderTop: '1px solid var(--brd)' }}>
+                        <div className="sec-lbl" style={{ marginBottom: 8 }}>Recently Resolved · {resolvedTickets.length}</div>
+                        <table className="dt">
+                          <tbody>
+                            {resolvedTickets.slice(0, 5).map(t => (
+                              <tr key={t.id} onClick={() => { setSelected(selected?.id === t.id ? null : t); setNotes('') }} style={{ opacity: 0.7 }}>
+                                <td><span className="mono" style={{ fontSize: 11, color: 'var(--grn)' }}>{t.ticket_number}</span></td>
+                                <td>{t.title}</td>
+                                <td><span className="pill pill-ok">Resolved</span></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Scrollable body */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '20px 22px' }}>
+                {/* Right — detail panel */}
+                <div className="split-r fade">
+                  {!selected ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--fg-mute)', gap: 10 }}>
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>Select a ticket</div>
+                      <div className="small muted">Click any row to view details</div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
 
-                  {/* Badges */}
-                  <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 10, padding: '3px 10px', background: `${statusColor(selected.status)}18`, color: statusColor(selected.status), borderRadius: 4, fontWeight: 700, textTransform: 'uppercase' }}>{selected.status.replace('_', ' ')}</span>
-                    <span style={{ fontSize: 10, padding: '3px 10px', background: 'rgba(23,77,56,.12)', color: '#4d9e78', borderRadius: 4 }}>{domainLabel(selected.domain)}</span>
-                    {selected.sla_breached && <span style={{ fontSize: 10, padding: '3px 10px', background: 'rgba(239,68,68,.12)', color: '#ef4444', borderRadius: 4, fontWeight: 700 }}>SLA Breached</span>}
-                  </div>
-
-                  {/* User */}
-                  <div style={{ padding: '14px 16px', background: T.secBg, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 14 }}>
-                    <div style={{ fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: T.muted, marginBottom: 10, fontWeight: 600 }}>User</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(23,77,56,0.15)', border: '1px solid rgba(23,77,56,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: T.gl, flexShrink: 0 }}>
-                        {selected.user_name?.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <div style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 15, fontWeight: 500, color: T.text, marginBottom: 3 }}>{selected.user_name}</div>
-                        <div style={{ fontSize: 11, color: T.muted, marginBottom: 4 }}>{selected.user_email}</div>
-                        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                          {selected.user_city && <span style={{ fontSize: 11, color: T.muted }}>📍 {selected.user_city}, {selected.user_country}</span>}
-                          {selected.user_timezone && <span style={{ fontSize: 11, color: T.gl }}>🕐 <LiveClock timezone={selected.user_timezone} label=""/> local</span>}
+                      {/* Panel header */}
+                      <div style={{ background: 'var(--grn)', padding: '12px 16px', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div>
+                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,.5)', fontFamily: '"JetBrains Mono",monospace', marginBottom: 4 }}>{selected.ticket_number}</div>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', lineHeight: 1.3, maxWidth: 340 }}>{selected.title}</div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0, marginLeft: 10 }}>
+                            <span className={`pill ${pPill(selected.priority)}`}>{selected.priority}</span>
+                            <button className="btn btn-sm btn-g" style={{ color: 'rgba(255,255,255,.7)' }} onClick={() => setSelected(null)}>✕</button>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                          <span className={`pill ${sPill(selected.status)}`}>{selected.status.replace('_', ' ')}</span>
+                          <span className="pill">{dLabel(selected.domain)}</span>
+                          {selected.sla_breached && <span className="pill pill-crit">SLA Breach</span>}
                         </div>
                       </div>
-                    </div>
-                  </div>
 
-                  {/* Description */}
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: T.muted, marginBottom: 8, fontWeight: 600 }}>Issue Description</div>
-                    <div style={{ fontSize: 13, color: T.text, lineHeight: 1.7, padding: '12px 14px', background: T.secBg, border: `1px solid ${T.border}`, borderRadius: 8 }}>{selected.description}</div>
-                  </div>
+                      {/* Panel body */}
+                      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-                  {/* Steps tried */}
-                  {selected.steps_tried && (
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: T.muted, marginBottom: 8, fontWeight: 600 }}>Steps Already Tried</div>
-                      <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.7, padding: '12px 14px', background: T.secBg, border: `1px solid ${T.border}`, borderRadius: 8 }}>{selected.steps_tried}</div>
-                    </div>
-                  )}
+                        {/* User */}
+                        <div className="card">
+                          <div className="c-head"><span className="sec-lbl" style={{ margin: 0 }}>User</span></div>
+                          <div style={{ padding: '10px 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div className="av" style={{ width: 32, height: 32, background: 'var(--grn-w)', color: 'var(--grn)', fontSize: 13, fontWeight: 700 }}>{selected.user_name?.charAt(0)?.toUpperCase()}</div>
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: 13 }}>{selected.user_name}</div>
+                                <div className="small muted">{selected.user_email}</div>
+                                {selected.user_city && <div className="small muted">📍 {selected.user_city}, {selected.user_country}</div>}
+                              </div>
+                            </div>
+                            <hr className="div" />
+                            <div className="small muted">
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ marginRight: 4, verticalAlign: 'middle' }}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                              Created {fmtTime(selected.created_at, selected.user_timezone)}
+                            </div>
+                          </div>
+                        </div>
 
-                  {/* AI Diagnosis */}
-                  {selected.ai_diagnosis && (
-                    <div style={{ padding: '14px 16px', background: 'rgba(23,77,56,0.08)', border: '1px solid rgba(23,77,56,0.2)', borderRadius: 8, marginBottom: 14 }}>
-                      <div style={{ fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: T.gl, marginBottom: 8, fontWeight: 600 }}>AI Diagnosis</div>
-                      <div style={{ fontSize: 13, color: T.text, lineHeight: 1.7 }}>{selected.ai_diagnosis}</div>
-                    </div>
-                  )}
+                        {/* Description */}
+                        <div className="card">
+                          <div className="c-head"><span className="sec-lbl" style={{ margin: 0 }}>Issue Description</span></div>
+                          <div className="kb-c" style={{ margin: 10, borderRadius: 4 }}>{selected.description}</div>
+                          {selected.steps_tried && (
+                            <>
+                              <div className="c-head" style={{ borderTop: '1px solid var(--brd)' }}><span className="sec-lbl" style={{ margin: 0 }}>Steps Tried</span></div>
+                              <div className="kb-c" style={{ margin: 10, borderRadius: 4 }}>{selected.steps_tried}</div>
+                            </>
+                          )}
+                        </div>
 
-                  {/* Screenshot + CNN — authenticated blob fetch */}
-                  {selected.cnn_image_result && (
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: T.gl, marginBottom: 8, fontWeight: 600 }}>Screenshot + CNN Detection</div>
-                      <div style={{ fontSize: 11, color: T.muted, marginBottom: 10, padding: '7px 12px', background: 'rgba(23,77,56,0.08)', border: '1px solid rgba(23,77,56,0.15)', borderRadius: 6 }}>
-                        {selected.cnn_image_result.includes(' |')
-                          ? selected.cnn_image_result.split(' | ').slice(1).join(' · ')
-                          : 'Screenshot uploaded by user'}
+                        {/* AI Diagnosis */}
+                        {selected.ai_diagnosis && (
+                          <div className="card">
+                            <div className="c-head">
+                              <span className="dot dot-grn" />
+                              <span className="sec-lbl" style={{ margin: 0 }}>AI Diagnosis</span>
+                            </div>
+                            <div style={{ padding: '10px 14px', fontSize: 12, lineHeight: 1.7, color: 'var(--fg-dim)' }}>{selected.ai_diagnosis}</div>
+                          </div>
+                        )}
+
+                        {/* Screenshot */}
+                        {selected.cnn_image_result && (
+                          <div className="card">
+                            <div className="c-head">
+                              <span className="sec-lbl" style={{ margin: 0 }}>Screenshot · CNN Detection</span>
+                            </div>
+                            <div style={{ padding: 10 }}>
+                              <div className="kb-c" style={{ marginBottom: 8 }}>
+                                {selected.cnn_image_result.includes(' |') ? selected.cnn_image_result.split(' | ').slice(1).join(' · ') : 'Screenshot uploaded by user'}
+                              </div>
+                              {getScreenshotUrl(selected.cnn_image_result) && (
+                                <ScreenshotImage url={getScreenshotUrl(selected.cnn_image_result)!} />
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* KB Similarity */}
+                        <div className="card">
+                          <div className="c-head">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--grn)" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+                            <span className="sec-lbl" style={{ margin: 0 }}>Knowledge Base Similarity</span>
+                          </div>
+                          <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {kbLoading ? (
+                              <div className="kb-c" style={{ textAlign: 'center' }}>Searching knowledge base...</div>
+                            ) : kbResults.length === 0 ? (
+                              <div className="kb-c muted" style={{ textAlign: 'center' }}>No relevant KB articles found</div>
+                            ) : kbResults.map((r, i) => (
+                              <div key={i} style={{ background: 'var(--bg-sun)', border: '1px solid var(--brd)', borderLeft: `3px solid ${simColor(r.cosine_similarity)}`, borderRadius: 4, padding: '8px 10px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 600, flex: 1, marginRight: 8 }}>{r.title}</span>
+                                  <span className="pill" style={{ background: `${simColor(r.cosine_similarity)}18`, color: simColor(r.cosine_similarity), border: 'none', fontFamily: '"JetBrains Mono",monospace' }}>
+                                    {r.cosine_similarity}% {simLabel(r.cosine_similarity)}
+                                  </span>
+                                </div>
+                                <div className="small muted mono" style={{ marginBottom: 4 }}>{r.filename}</div>
+                                <div style={{ fontSize: 11, color: 'var(--fg-dim)', lineHeight: 1.6, display: kbExpanded === i ? 'block' : '-webkit-box', WebkitLineClamp: kbExpanded === i ? undefined : 2, WebkitBoxOrient: 'vertical' as any, overflow: kbExpanded === i ? 'visible' : 'hidden' }}>
+                                  {r.content}
+                                </div>
+                                <button onClick={() => setKbExpanded(kbExpanded === i ? null : i)} style={{ fontSize: 10, color: 'var(--grn)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', marginTop: 4, padding: 0 }}>
+                                  {kbExpanded === i ? 'Show less ↑' : 'Read more ↓'}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Resolution */}
+                        {selected.status !== 'resolved' ? (
+                          <div className="card">
+                            <div className="c-head"><span className="sec-lbl" style={{ margin: 0 }}>Resolution Notes</span></div>
+                            <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              <textarea rows={4} placeholder="Document what you did to resolve this issue..." value={notes} onChange={e => setNotes(e.target.value)} />
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                {selected.status === 'open' && (
+                                  <button className="btn" style={{ flex: 1 }} onClick={markInProgress}>Mark In Progress</button>
+                                )}
+                                <button className="btn btn-p" style={{ flex: 2 }} disabled={updating || !notes.trim()} onClick={resolveTicket}>
+                                  {updating ? 'Saving...' : 'Mark Resolved ✓'}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ) : selected.resolution_notes ? (
+                          <div className="card">
+                            <div className="c-head"><span className="dot dot-ok" /><span className="sec-lbl" style={{ margin: 0 }}>Resolution Notes</span></div>
+                            <div style={{ padding: '10px 14px', fontSize: 12, lineHeight: 1.7, color: 'var(--fg-dim)' }}>{selected.resolution_notes}</div>
+                          </div>
+                        ) : null}
+
                       </div>
-                      {getScreenshotUrl(selected.cnn_image_result) && (
-                        <ScreenshotImage
-                          url={getScreenshotUrl(selected.cnn_image_result)!}
-                          dark={dark}
-                        />
-                      )}
-                    </div>
-                  )}
-
-                  {/* Created at */}
-                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-                    {new Date(selected.created_at).toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                  </div>
-
-                  {/* Resolution notes input */}
-                  {selected.status !== 'resolved' && (
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: T.muted, marginBottom: 8, fontWeight: 600 }}>Resolution Notes</div>
-                      <textarea style={{ ...T.inp, minHeight: 80 }} placeholder="Document what you did to resolve this issue..." value={notes} onChange={e => setNotes(e.target.value)}/>
-                    </div>
-                  )}
-
-                  {/* Resolved notes display */}
-                  {selected.status === 'resolved' && selected.resolution_notes && (
-                    <div style={{ padding: '14px 16px', background: 'rgba(23,77,56,0.08)', border: '1px solid rgba(23,77,56,0.2)', borderRadius: 8, marginBottom: 14 }}>
-                      <div style={{ fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: T.gl, marginBottom: 8, fontWeight: 600 }}>Resolution Notes</div>
-                      <div style={{ fontSize: 13, color: T.text, lineHeight: 1.7 }}>{selected.resolution_notes}</div>
-                    </div>
-                  )}
-
-                  {/* Action buttons */}
-                  {selected.status !== 'resolved' && (
-                    <div style={{ display: 'flex', gap: 10 }}>
-                      {selected.status === 'open' && (
-                        <button onClick={() => updateTicket(selected.id, 'in_progress')} disabled={updating}
-                          style={{ flex: 1, padding: '11px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#3b82f6', fontSize: 13, fontWeight: 600, cursor: 'pointer', borderRadius: 8, fontFamily: 'inherit' }}>
-                          Mark In Progress
-                        </button>
-                      )}
-                      <button onClick={() => updateTicket(selected.id, 'resolved', notes)} disabled={updating || !notes.trim()}
-                        style={{ flex: 2, padding: '11px', background: !notes.trim() ? (dark ? 'rgba(23,77,56,0.12)' : 'rgba(23,77,56,0.07)') : 'linear-gradient(135deg,#174D38,#0f3324)', color: !notes.trim() ? T.muted : '#ede8e0', border: 'none', fontSize: 13, fontWeight: 600, cursor: !notes.trim() ? 'not-allowed' : 'pointer', borderRadius: 8, fontFamily: 'inherit', boxShadow: notes.trim() ? '0 4px 14px rgba(23,77,56,.3)' : 'none', letterSpacing: '0.03em' }}>
-                        {updating ? 'Saving...' : 'Mark Resolved ✓'}
-                      </button>
                     </div>
                   )}
                 </div>
               </div>
             )}
+
+            {/* ── KB TAB ── */}
+            {tab === 'kb' && (
+              <div style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+                <div style={{ maxWidth: 760, margin: '0 auto' }}>
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Knowledge Base</div>
+                    <div className="small muted">Semantic search across all IT documentation and resolved tickets</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                    <input placeholder="Search docs... e.g. 'SSL certificate renewal', 'VPN setup'" value={kbSearch} onChange={e => setKbSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchKB()} style={{ flex: 1 }} />
+                    <button className="btn btn-p" onClick={searchKB} disabled={kbSearching || !kbSearch.trim()}>
+                      {kbSearching ? 'Searching...' : 'Search'}
+                    </button>
+                  </div>
+                  {kbSearchRes.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div className="small muted">{kbSearchRes.length} results for "{kbSearch}"</div>
+                      {kbSearchRes.map((r, i) => (
+                        <div key={i} className="card" style={{ borderLeft: `3px solid ${simColor(r.cosine_similarity)}` }}>
+                          <div className="c-head">
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600, fontSize: 13 }}>{r.title}</div>
+                              <div className="small muted mono">{r.filename}</div>
+                            </div>
+                            <span className="pill" style={{ background: `${simColor(r.cosine_similarity)}18`, color: simColor(r.cosine_similarity), border: 'none' }}>
+                              {r.cosine_similarity}% {simLabel(r.cosine_similarity)}
+                            </span>
+                          </div>
+                          <div style={{ padding: '10px 14px', fontSize: 12, color: 'var(--fg-dim)', lineHeight: 1.7 }}>{r.content}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {kbSearchRes.length === 0 && !kbSearching && (
+                    <div className="card" style={{ padding: '48px 24px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 28, marginBottom: 8 }}>📖</div>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>Search the knowledge base</div>
+                      <div className="small muted">Type a query above and press Enter</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── HISTORY TAB ── */}
+            {tab === 'history' && (
+              <div style={{ height: '100%', overflowY: 'auto', padding: 16 }}>
+                <div style={{ maxWidth: 900, margin: '0 auto' }}>
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Resolved Tickets</div>
+                    <div className="small muted">Your full resolution history · {resolvedTickets.length} tickets</div>
+                  </div>
+                  {stats && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 16 }}>
+                      {[
+                        { l: 'Total Resolved',  v: stats.total_resolved },
+                        { l: 'Avg Resolution',  v: `${stats.avg_resolution_time}m` },
+                        { l: 'SLA Compliance',  v: `${stats.sla_compliance_rate}%` },
+                      ].map((s, i) => (
+                        <div key={i} className="card" style={{ padding: '12px 14px' }}>
+                          <div className="tiny muted">{s.l}</div>
+                          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, fontFamily: '"JetBrains Mono",monospace', letterSpacing: '-.02em' }}>{s.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="card">
+                    <table className="dt">
+                      <thead><tr><th>ID</th><th>Issue</th><th>User</th><th>Domain</th><th>Created</th></tr></thead>
+                      <tbody>
+                        {resolvedTickets.length === 0 ? (
+                          <tr><td colSpan={5} style={{ textAlign: 'center', padding: 32, color: 'var(--fg-mute)' }}>No resolved tickets yet</td></tr>
+                        ) : resolvedTickets.map(t => (
+                          <tr key={t.id} onClick={() => { setSelected(t); setTab('queue') }}>
+                            <td><span className="mono" style={{ fontSize: 11, color: 'var(--grn)', fontWeight: 600 }}>{t.ticket_number}</span></td>
+                            <td style={{ maxWidth: 260 }}><div className="trunc">{t.title}</div></td>
+                            <td className="small muted">{t.user_name}</td>
+                            <td><span className="pill">{dLabel(t.domain)}</span></td>
+                            <td className="small muted mono">{fmtTime(t.created_at, t.user_timezone)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className="toast-tray">
+          <div className="toast">
+            <div style={{ width: 22, height: 22, borderRadius: 4, background: toast.type === 'ok' ? 'var(--ok-w)' : 'var(--crit-w)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              {toast.type === 'ok'
+                ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--crit)" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>}
+            </div>
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 2 }}>{toast.title}</div>
+              <div className="small muted">{toast.desc}</div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

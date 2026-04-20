@@ -34,3 +34,11 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+from app.api.v1.routes.analytics import router as analytics_router
+from app.api.v1.routes.knowledge  import router as knowledge_router
+ 
+# Add these include_router lines alongside your existing ones:
+app.include_router(analytics_router, prefix="/api/v1")
+app.include_router(knowledge_router,  prefix="/api/v1")
+ 

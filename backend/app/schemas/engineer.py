@@ -95,3 +95,7 @@ class EngineerStatsResponse(BaseModel):
     avg_resolution_time: int
     sla_compliance_rate: int
     this_week_resolved: int
+
+
+class ResolveTicketRequest(BaseModel):
+    resolution_notes: str

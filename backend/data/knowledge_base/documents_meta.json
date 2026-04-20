@@ -1,0 +1,24 @@
+{
+  "8cb3be31-0023-4263-87cc-387d717ff5e9": {
+    "id": "8cb3be31-0023-4263-87cc-387d717ff5e9",
+    "title": "SSL Certificate Troubleshooting Guide",
+    "filename": "SSL Certificate Troubleshooting Guide.pdf",
+    "domain": "networking",
+    "description": "ERR_CERT_EXPIRED means your SSL certificate has passed its expiry date.\r\nTo fix: log into your certificate authority portal, renew the certificate,\r\nthen run: sudo certbot renew or reissue from your CA dashboard.\r\nAfter renewal, restart your web server: sudo systemctl restart nginx",
+    "uploaded_by": "a5e9b33b-a8f7-453f-acfe-27d89278c634",
+    "uploaded_by_role": "admin",
+    "chunk_count": 1,
+    "created_at": "2026-04-19T16:27:40.838686"
+  },
+  "0f58cf66-5985-471a-9cff-969b12542ee5": {
+    "id": "0f58cf66-5985-471a-9cff-969b12542ee5",
+    "title": "Resolved: Security issue \u2014 20/4/2026",
+    "filename": "ticket_T-1008.txt",
+    "domain": "security",
+    "description": "Auto-indexed from resolved ticket T-1008",
+    "uploaded_by": "4e70f408-36e3-486e-87ac-0ead289b23da",
+    "uploaded_by_role": "engineer_auto",
+    "chunk_count": 1,
+    "created_at": "2026-04-20T10:06:18.979404"
+  }
+}

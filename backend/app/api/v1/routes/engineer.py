@@ -10,12 +10,12 @@ from app.models.user import User, UserRole
 from app.schemas.engineer import (
     EngineerProfileResponse, UpdateAvailabilityRequest,
     TicketResponse, UpdateTicketRequest, AddMessageRequest,
-    TicketMessageResponse, EngineerStatsResponse,
+    TicketMessageResponse, EngineerStatsResponse, ResolveTicketRequest,
 )
 from app.services.engineer_service import (
     get_engineer_profile, update_availability,
     get_engineer_tickets, get_ticket,
-    update_ticket, add_message, get_engineer_stats,
+    update_ticket, add_message, get_engineer_stats, resolve_ticket,
 )
 
 router = APIRouter(prefix="/engineer", tags=["Engineer"])
@@ -57,6 +57,13 @@ def update(ticket_id: str, data: UpdateTicketRequest, db: Session = Depends(get_
 @router.post("/tickets/{ticket_id}/messages", response_model=TicketMessageResponse)
 def message(ticket_id: str, data: AddMessageRequest, db: Session = Depends(get_db), user: User = Depends(get_engineer_user)):
     return add_message(db, user, ticket_id, data.message)
+
+
+
+
+@router.patch("/tickets/{ticket_id}/resolve", response_model=TicketResponse)
+def resolve(ticket_id: str, data: ResolveTicketRequest, db: Session = Depends(get_db), user: User = Depends(get_engineer_user)):
+    return resolve_ticket(db, user, ticket_id, data.resolution_notes)
 
 
 @router.get("/stats", response_model=EngineerStatsResponse)

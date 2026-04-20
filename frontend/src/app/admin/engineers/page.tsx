@@ -3,349 +3,287 @@
 
 import { useState, useEffect, useCallback } from 'react'
 
+const API = process.env.NEXT_PUBLIC_API_URL
+
 interface Engineer {
-  id: string
-  engineer_id: string
-  full_name: string
-  email: string
-  domain_expertise: string[]
-  region: string
-  timezone: string
-  seniority_level: string
-  max_ticket_capacity: number
-  availability_status: string
-  active_ticket_count: number
-  is_activated: boolean
-  is_active: boolean
-  total_resolved: number
-  sla_compliance_rate: number
-  created_at: string
+  id: string; engineer_id: string; full_name: string; email: string
+  domain_expertise: string[]; region: string; timezone: string; city: string; country: string
+  seniority_level: string; max_ticket_capacity: number; availability_status: string
+  active_ticket_count: number; is_activated: boolean; is_active: boolean
+  total_resolved: number; sla_compliance_rate: number
 }
 
 const DOMAINS = [
-  { value: 'networking',          label: 'Networking' },
-  { value: 'hardware',            label: 'Hardware' },
-  { value: 'software',            label: 'Software' },
-  { value: 'security',            label: 'Security' },
-  { value: 'email_communication', label: 'Email & Communication' },
-  { value: 'identity_access',     label: 'Identity & Access' },
-  { value: 'database',            label: 'Database' },
-  { value: 'cloud',               label: 'Cloud' },
-  { value: 'infrastructure',      label: 'Infrastructure' },
-  { value: 'devops',              label: 'DevOps' },
-  { value: 'erp_business_apps',   label: 'ERP & Business Apps' },
-  { value: 'endpoint_management', label: 'Endpoint Management' },
+  {v:'networking',l:'Networking'},{v:'hardware',l:'Hardware'},{v:'software',l:'Software'},
+  {v:'security',l:'Security'},{v:'email_communication',l:'Email & Comm'},{v:'identity_access',l:'Identity & Access'},
+  {v:'database',l:'Database'},{v:'cloud',l:'Cloud'},{v:'infrastructure',l:'Infrastructure'},
+  {v:'devops',l:'DevOps'},{v:'erp_business_apps',l:'ERP & Business'},{v:'endpoint_management',l:'Endpoint Mgmt'},
 ]
+const REGIONS = ['India','Europe','US','Asia Pacific','Middle East','Africa']
+const SENIORITY = ['junior','mid','senior','lead']
 
-const REGIONS = ['India', 'Europe', 'US', 'Asia Pacific', 'Middle East', 'Africa']
-const SENIORITY = ['junior', 'mid', 'senior', 'lead']
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  .adm{font-family:"Inter",-apple-system,sans-serif;font-size:13px;color:#141414;background:#F2F2F2;min-height:100%}
+  .adm *{box-sizing:border-box}
+  .adm .card{background:#fff;border:1px solid #CBCBCB;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.07)}
+  .adm .c-head{padding:10px 14px;border-bottom:1px solid #CBCBCB;display:flex;align-items:center;gap:10px;min-height:40px}
+  .adm .c-head h3{margin:0;font-size:12px;font-weight:600;letter-spacing:-.01em}
+  .adm .pill{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:10px;font-size:10px;font-weight:600;font-family:"JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.04em;background:#EBEBEB;color:#3a3a3a;border:1px solid #CBCBCB;white-space:nowrap}
+  .adm .pill-ok{background:#e6f4ed;color:#1a7a4a;border-color:transparent}
+  .adm .pill-warn{background:#fdf4e3;color:#8a5a00;border-color:transparent}
+  .adm .pill-crit{background:#f5eaea;color:#4D1717;border-color:transparent}
+  .adm .pill-grn{background:#e8f2ed;color:#174D38;border-color:transparent}
+  .adm .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#a0a0a0;flex-shrink:0}
+  .adm .dot-ok{background:#1a7a4a}.adm .dot-warn{background:#8a5a00}.adm .dot-crit{background:#4D1717}
+  .adm table.dt{width:100%;border-collapse:collapse;font-size:12px}
+  .adm table.dt th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#6b6b6b;padding:8px 12px;background:#EBEBEB;border-bottom:1px solid #CBCBCB;font-weight:600;font-family:"JetBrains Mono",monospace;white-space:nowrap}
+  .adm table.dt td{padding:8px 12px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+  .adm table.dt tr:hover td{background:#f9f9f9}
+  .adm .bar{height:5px;background:#EBEBEB;border-radius:3px;overflow:hidden;border:1px solid #CBCBCB}
+  .adm .bar-f{height:100%;transition:width .4s;border-radius:3px}
+  .adm .btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:4px;border:1px solid #CBCBCB;background:#fff;color:#141414;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background .1s}
+  .adm .btn:hover{background:#EBEBEB}
+  .adm .btn-p{background:#174D38!important;color:#fff!important;border-color:#174D38!important}
+  .adm .btn-p:hover{background:#1f6a4d!important}
+  .adm .btn-r{background:#4D1717!important;color:#fff!important;border-color:#4D1717!important}
+  .adm .btn-sm{height:24px;padding:0 8px;font-size:11px}
+  .adm .btn-g{background:transparent!important;border-color:transparent!important;color:#6b6b6b!important}
+  .adm .chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:12px;background:#EBEBEB;border:1px solid #CBCBCB;font-size:11px;color:#3a3a3a;cursor:pointer;font-weight:500;transition:all .1s}
+  .adm .chip:hover,.adm .chip.on{background:#174D38;color:#fff;border-color:#174D38}
+  .adm .mono{font-family:"JetBrains Mono",monospace}
+  .adm .muted{color:#6b6b6b}
+  .adm .small{font-size:11px}
+  .adm .tiny{font-size:10px}
+  .adm .trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .adm .row{display:flex;align-items:center;gap:8px}
+  .adm .grow{flex:1}
+  .adm input,.adm select,.adm textarea{font-family:inherit;font-size:12px;background:#EBEBEB;border:1px solid #CBCBCB;color:#141414;border-radius:4px;padding:6px 10px;width:100%;outline:none;transition:border-color .15s}
+  .adm input:focus,.adm select:focus,.adm textarea:focus{border-color:#174D38;background:#fff}
+  .adm textarea{resize:vertical;line-height:1.5}
+  .adm .lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#6b6b6b;font-family:"JetBrains Mono",monospace;margin-bottom:5px;display:block}
+`
 
-export default function AdminEngineersPage() {
+export default function EngineersPage() {
   const [engineers, setEngineers] = useState<Engineer[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const [dark, setDark] = useState(true)
-  const [search, setSearch] = useState('')
+  const [loading, setLoading]     = useState(true)
+  const [search, setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [regionFilter, setRegionFilter] = useState('all')
-  const [form, setForm] = useState({
-    full_name: '', email: '',
-    domain_expertise: [] as string[],
-    region: 'India', timezone: 'Asia/Kolkata',
-    seniority_level: 'mid', max_ticket_capacity: 10,
+  const [showModal, setShowModal] = useState(false)
+  const [creating, setCreating]   = useState(false)
+  const [success, setSuccess]     = useState('')
+  const [error, setError]         = useState('')
+  const [form, setForm]           = useState({
+    full_name: '', email: '', domain_expertise: [] as string[],
+    region: 'India', timezone: 'Asia/Kolkata', seniority_level: 'mid', max_ticket_capacity: 10,
   })
 
-  useEffect(() => {
-    const theme = localStorage.getItem('admin_theme')
-    setDark(theme !== 'light')
-  }, [])
+  const hdrs = useCallback(() => ({ Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` }), [])
 
-  const fetchEngineers = useCallback(async () => {
+  useEffect(() => { fetchEngineers() }, [search, statusFilter])
+
+  const fetchEngineers = async () => {
+    setLoading(true)
     try {
-      const token = localStorage.getItem('access_token')
       const params = new URLSearchParams()
       if (search) params.set('search', search)
       if (statusFilter !== 'all') params.set('status', statusFilter)
-      if (regionFilter !== 'all') params.set('region', regionFilter)
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/engineers?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!res.ok) throw new Error('Failed')
-      setEngineers(await res.json())
-    } catch {
-    } finally {
-      setLoading(false)
-    }
-  }, [search, statusFilter, regionFilter])
-
-  useEffect(() => {
-    const timer = setTimeout(fetchEngineers, 300)
-    return () => clearTimeout(timer)
-  }, [fetchEngineers])
+      const r = await fetch(`${API}/api/v1/admin/engineers?${params}`, { headers: hdrs() })
+      if (r.ok) setEngineers(await r.json())
+    } catch {} finally { setLoading(false) }
+  }
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (form.domain_expertise.length === 0) { setError('Select at least one domain'); return }
-    setCreating(true)
-    setError('')
+    if (!form.domain_expertise.length) { setError('Select at least one domain'); return }
+    setCreating(true); setError('')
     try {
-      const token = localStorage.getItem('access_token')
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/engineers`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      const r = await fetch(`${API}/api/v1/admin/engineers`, {
+        method: 'POST', headers: { ...hdrs(), 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.detail || 'Failed')
-      setSuccess(`Engineer ${d.engineer_id} created! Activation email sent.`)
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || 'Failed')
+      setSuccess(`Engineer ${d.engineer_id} created — activation email sent.`)
       setShowModal(false)
       setForm({ full_name: '', email: '', domain_expertise: [], region: 'India', timezone: 'Asia/Kolkata', seniority_level: 'mid', max_ticket_capacity: 10 })
       fetchEngineers()
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setCreating(false)
-    }
+    } catch (err: any) { setError(err.message) }
+    finally { setCreating(false) }
   }
 
-  const handleDeactivate = async (engineerId: string) => {
-    if (!confirm(`Deactivate ${engineerId}?`)) return
-    try {
-      const token = localStorage.getItem('access_token')
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/engineers/${engineerId}`, {
-        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
-      })
-      const d = await res.json()
-      if (!res.ok) { alert(d.detail || 'Failed'); return }
-      setSuccess(`${engineerId} deactivated. Notification sent.`)
-      fetchEngineers()
-    } catch { alert('Something went wrong') }
+  const handleDeactivate = async (engId: string) => {
+    if (!confirm(`Deactivate ${engId}?`)) return
+    const r = await fetch(`${API}/api/v1/admin/engineers/${engId}`, { method: 'DELETE', headers: hdrs() })
+    if (r.ok) { setSuccess(`${engId} deactivated.`); fetchEngineers() }
   }
 
-  const handleReactivate = async (engineerId: string) => {
-    if (!confirm(`Reactivate ${engineerId}?`)) return
-    try {
-      const token = localStorage.getItem('access_token')
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/engineers/${engineerId}/reactivate`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` },
-      })
-      const d = await res.json()
-      if (!res.ok) { alert(d.detail || 'Failed'); return }
-      setSuccess(`${engineerId} reactivated. Notification sent.`)
-      fetchEngineers()
-    } catch { alert('Something went wrong') }
+  const handleReactivate = async (engId: string) => {
+    if (!confirm(`Reactivate ${engId}?`)) return
+    const r = await fetch(`${API}/api/v1/admin/engineers/${engId}/reactivate`, { method: 'POST', headers: hdrs() })
+    if (r.ok) { setSuccess(`${engId} reactivated.`); fetchEngineers() }
   }
 
-  const toggleDomain = (d: string) => {
-    setForm(f => ({
-      ...f,
-      domain_expertise: f.domain_expertise.includes(d)
-        ? f.domain_expertise.filter(x => x !== d)
-        : [...f.domain_expertise, d],
-    }))
-  }
+  const toggleDomain = (v: string) => setForm(f => ({
+    ...f, domain_expertise: f.domain_expertise.includes(v)
+      ? f.domain_expertise.filter(x => x !== v)
+      : [...f.domain_expertise, v],
+  }))
 
-  const getDomainLabel = (value: string) =>
-    DOMAINS.find(d => d.value === value)?.label || value
-
-  const getStatus = (eng: Engineer) => {
-    if (!eng.is_active) return { label: 'Deactivated', color: '#ef4444', bg: 'rgba(239,68,68,0.1)' }
-    if (!eng.is_activated) return { label: 'Pending', color: '#f97316', bg: 'rgba(249,115,22,0.1)' }
-    if (eng.availability_status === 'available') return { label: 'Available', color: '#4d9e78', bg: 'rgba(77,158,120,0.1)' }
-    if (eng.availability_status === 'busy') return { label: 'Busy', color: '#f97316', bg: 'rgba(249,115,22,0.1)' }
-    return { label: 'Away', color: '#6b7280', bg: 'rgba(107,114,128,0.1)' }
-  }
-
-  const t = {
-    text:      dark ? '#F2F2F2' : '#111111',
-    textMuted: dark ? 'rgba(242,242,242,0.45)' : 'rgba(17,17,17,0.5)',
-    card:      dark ? '#141414' : '#ffffff',
-    border:    dark ? 'rgba(255,255,255,0.07)' : '#CBCBCB',
-    cardHover: dark ? '#1a1a1a' : '#f7f7f7',
-    modalBg:   dark ? '#111111' : '#ffffff',
-    inp:       { width: '100%', padding: '10px 14px', background: dark ? 'rgba(255,255,255,0.04)' : '#f7f7f7', border: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : '#CBCBCB'}`, color: dark ? '#F2F2F2' : '#111', fontSize: 14, outline: 'none', borderRadius: 2, fontFamily: 'DM Sans, sans-serif' } as React.CSSProperties,
-    lbl:       { fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: dark ? 'rgba(242,242,242,0.4)' : 'rgba(17,17,17,0.5)', marginBottom: 8, display: 'block', fontWeight: 500 } as React.CSSProperties,
+  const getStatus = (e: Engineer) => {
+    if (!e.is_active) return { l: 'Deactivated', c: 'dot-crit', p: 'pill-crit' }
+    if (!e.is_activated) return { l: 'Pending', c: 'dot-warn', p: 'pill-warn' }
+    if (e.availability_status === 'available') return { l: 'Available', c: 'dot-ok', p: 'pill-ok' }
+    if (e.availability_status === 'busy') return { l: 'Busy', c: 'dot-warn', p: 'pill-warn' }
+    return { l: 'Away', c: '', p: '' }
   }
 
   return (
-    <div>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontFamily: 'Georgia, serif', fontSize: 28, fontWeight: 500, color: t.text, marginBottom: 6 }}>Engineers</h1>
-          <p style={{ fontSize: 14, color: t.textMuted }}>{engineers.length} engineers found</p>
-        </div>
-        <button onClick={() => { setShowModal(true); setError('') }} style={{ padding: '10px 24px', background: '#174D38', color: '#F2F2F2', border: 'none', fontSize: 13, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: 'pointer', borderRadius: 2, fontFamily: 'inherit' }}>
-          + Add Engineer
-        </button>
-      </div>
+    <>
+      <style>{CSS}</style>
+      <div className="adm" style={{ padding: 16 }}>
 
-      {/* Search + Filters */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 200, position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: t.textMuted, fontSize: 14 }}>⌕</span>
-          <input style={{ ...t.inp, paddingLeft: 36 }} type="text" placeholder="Search by name, email, ID, region..." value={search} onChange={e => setSearch(e.target.value)}/>
-        </div>
-        <select style={{ ...t.inp, width: 'auto', minWidth: 140, appearance: 'none', cursor: 'pointer' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-          <option value="all">All Status</option>
-          <option value="active">Active</option>
-          <option value="pending">Pending</option>
-          <option value="deactivated">Deactivated</option>
-        </select>
-        <select style={{ ...t.inp, width: 'auto', minWidth: 140, appearance: 'none', cursor: 'pointer' }} value={regionFilter} onChange={e => setRegionFilter(e.target.value)}>
-          <option value="all">All Regions</option>
-          {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
-        </select>
-        {(search || statusFilter !== 'all' || regionFilter !== 'all') && (
-          <button onClick={() => { setSearch(''); setStatusFilter('all'); setRegionFilter('all') }} style={{ padding: '10px 16px', background: 'transparent', border: `1px solid ${t.border}`, color: t.textMuted, fontSize: 13, cursor: 'pointer', borderRadius: 2, fontFamily: 'inherit' }}>
-            Clear ×
+        {/* Header */}
+        <div className="row" style={{ marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-.01em' }}>Engineer Management</div>
+            <div className="small muted">{engineers.length} engineers · all regions</div>
+          </div>
+          <span className="grow" />
+          <button className="btn btn-p btn-sm" onClick={() => { setShowModal(true); setError('') }}>
+            + Add Engineer
           </button>
-        )}
-      </div>
-
-      {/* Success */}
-      {success && (
-        <div style={{ padding: '12px 16px', background: 'rgba(23,77,56,0.15)', border: '1px solid rgba(23,77,56,0.3)', color: '#4d9e78', fontSize: 13, marginBottom: 20, borderRadius: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {success}
-          <button onClick={() => setSuccess('')} style={{ background: 'none', border: 'none', color: '#4d9e78', cursor: 'pointer', fontSize: 18 }}>×</button>
-        </div>
-      )}
-
-      {/* Table */}
-      <div style={{ background: t.card, border: `1px solid ${t.border}`, borderRadius: 4, overflow: 'hidden' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 1fr 110px 110px 80px 80px 130px', padding: '12px 20px', borderBottom: `1px solid ${t.border}`, background: dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
-          {['Engineer ID', 'Name & Email', 'Domains', 'Region', 'Status', 'Tickets', 'Resolved', 'Actions'].map((h, i) => (
-            <div key={i} style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: t.textMuted, fontWeight: 600 }}>{h}</div>
-          ))}
         </div>
 
-        {loading ? (
-          <div style={{ padding: '48px', textAlign: 'center', color: t.textMuted }}>Loading...</div>
-        ) : engineers.length === 0 ? (
-          <div style={{ padding: '48px', textAlign: 'center' }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>◈</div>
-            <div style={{ fontSize: 15, color: t.text, marginBottom: 8 }}>No engineers found</div>
-            <div style={{ fontSize: 13, color: t.textMuted }}>
-              {search || statusFilter !== 'all' || regionFilter !== 'all' ? 'Try clearing your filters.' : 'Click "+ Add Engineer" to get started.'}
-            </div>
+        {success && (
+          <div style={{ padding: '10px 14px', background: '#e6f4ed', border: '1px solid #1a7a4a', borderRadius: 4, color: '#1a7a4a', fontSize: 12, marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
+            {success}<button onClick={() => setSuccess('')} style={{ background: 'none', border: 'none', color: '#1a7a4a', cursor: 'pointer', fontSize: 14 }}>×</button>
           </div>
-        ) : (
-          engineers.map((eng, i) => {
-            const status = getStatus(eng)
-            return (
-              <div key={eng.id} style={{ display: 'grid', gridTemplateColumns: '130px 1fr 1fr 110px 110px 80px 80px 130px', padding: '16px 20px', borderBottom: i < engineers.length - 1 ? `1px solid ${t.border}` : 'none', transition: 'background 0.15s', opacity: !eng.is_active ? 0.6 : 1 }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = t.cardHover}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-              >
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#4d9e78', fontFamily: 'monospace' }}>{eng.engineer_id}</div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{eng.full_name}</div>
-                  <div style={{ fontSize: 12, color: t.textMuted }}>{eng.email}</div>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignContent: 'flex-start' }}>
-                  {eng.domain_expertise.map((d, j) => (
-                    <span key={j} style={{ fontSize: 10, padding: '2px 6px', background: 'rgba(23,77,56,0.12)', color: '#4d9e78', borderRadius: 2 }}>{getDomainLabel(d)}</span>
-                  ))}
-                </div>
-                <div style={{ fontSize: 13, color: t.textMuted }}>{eng.region}</div>
-                <div>
-                  <span style={{ fontSize: 11, padding: '3px 8px', background: status.bg, color: status.color, borderRadius: 2, fontWeight: 600 }}>{status.label}</span>
-                </div>
-                <div style={{ fontSize: 13, color: t.textMuted }}>{eng.active_ticket_count}/{eng.max_ticket_capacity}</div>
-                <div style={{ fontSize: 13, color: t.textMuted }}>{eng.total_resolved}</div>
-                <div>
-                  {eng.is_active ? (
-                    <button onClick={() => handleDeactivate(eng.engineer_id)} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(77,23,23,0.15)', border: '1px solid rgba(77,23,23,0.25)', color: '#a04040', cursor: 'pointer', borderRadius: 2, fontFamily: 'inherit' }}>Deactivate</button>
-                  ) : (
-                    <button onClick={() => handleReactivate(eng.engineer_id)} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(23,77,56,0.15)', border: '1px solid rgba(23,77,56,0.25)', color: '#4d9e78', cursor: 'pointer', borderRadius: 2, fontFamily: 'inherit' }}>Reactivate</button>
-                  )}
-                </div>
-              </div>
-            )
-          })
         )}
-      </div>
 
-      {/* Create Modal */}
-      {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: t.modalBg, border: `1px solid ${t.border}`, borderRadius: 8, width: '100%', maxWidth: 580, maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ padding: '24px 28px', borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h2 style={{ fontFamily: 'Georgia, serif', fontSize: 22, fontWeight: 500, color: t.text, marginBottom: 4 }}>Add New Engineer</h2>
-                <p style={{ fontSize: 13, color: t.textMuted }}>Activation email sent automatically.</p>
-              </div>
-              <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', color: t.textMuted, fontSize: 24, cursor: 'pointer' }}>×</button>
-            </div>
-
-            <form onSubmit={handleCreate} style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-              {error && (
-                <div style={{ padding: '12px 14px', background: 'rgba(77,23,23,0.2)', border: '1px solid rgba(200,50,50,0.3)', color: '#f87171', fontSize: 13, borderRadius: 2 }}>{error}</div>
-              )}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div>
-                  <label style={t.lbl}>Full Name</label>
-                  <input style={t.inp} type="text" placeholder="Arjun Sharma" value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} required/>
-                </div>
-                <div>
-                  <label style={t.lbl}>Email Address</label>
-                  <input style={t.inp} type="email" placeholder="arjun@company.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required/>
-                </div>
-              </div>
-
-              <div>
-                <label style={t.lbl}>Domain Expertise (select all that apply)</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {DOMAINS.map(d => {
-                    const selected = form.domain_expertise.includes(d.value)
-                    return (
-                      <button key={d.value} type="button" onClick={() => toggleDomain(d.value)} style={{ padding: '6px 12px', fontSize: 11, background: selected ? '#174D38' : 'transparent', border: `1px solid ${selected ? '#174D38' : t.border}`, color: selected ? '#F2F2F2' : t.textMuted, cursor: 'pointer', borderRadius: 2, fontFamily: 'inherit', transition: 'all 0.15s' }}>
-                        {d.label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div>
-                  <label style={t.lbl}>Region</label>
-                  <select style={{ ...t.inp, appearance: 'none' }} value={form.region} onChange={e => setForm(f => ({ ...f, region: e.target.value }))}>
-                    {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={t.lbl}>Timezone</label>
-                  <input style={t.inp} type="text" value={form.timezone} onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))}/>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div>
-                  <label style={t.lbl}>Seniority</label>
-                  <select style={{ ...t.inp, appearance: 'none' }} value={form.seniority_level} onChange={e => setForm(f => ({ ...f, seniority_level: e.target.value }))}>
-                    {SENIORITY.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={t.lbl}>Max Capacity</label>
-                  <input style={t.inp} type="number" min={1} max={50} value={form.max_ticket_capacity} onChange={e => setForm(f => ({ ...f, max_ticket_capacity: parseInt(e.target.value) }))}/>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 12, paddingTop: 4 }}>
-                <button type="button" onClick={() => setShowModal(false)} style={{ flex: 1, padding: '12px', background: 'transparent', border: `1px solid ${t.border}`, color: t.textMuted, fontSize: 13, cursor: 'pointer', borderRadius: 2, fontFamily: 'inherit' }}>Cancel</button>
-                <button type="submit" disabled={creating} style={{ flex: 2, padding: '12px', background: creating ? '#0f3526' : '#174D38', color: '#F2F2F2', border: 'none', fontSize: 13, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', cursor: creating ? 'not-allowed' : 'pointer', borderRadius: 2, fontFamily: 'inherit' }}>
-                  {creating ? 'Creating...' : 'Create Engineer →'}
-                </button>
-              </div>
-            </form>
+        {/* Filters */}
+        <div className="row" style={{ marginBottom: 12, gap: 8 }}>
+          <input placeholder="Search by name, email, ID, region..." value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: 320, background: '#fff' }} />
+          <div style={{ display: 'flex', gap: 4 }}>
+            {[{ v: 'all', l: 'All' }, { v: 'active', l: 'Active' }, { v: 'pending', l: 'Pending' }, { v: 'deactivated', l: 'Deactivated' }].map(f => (
+              <span key={f.v} className={`chip ${statusFilter === f.v ? 'on' : ''}`} onClick={() => setStatusFilter(f.v)}>{f.l}</span>
+            ))}
           </div>
         </div>
-      )}
-    </div>
+
+        {/* Table */}
+        <div className="card">
+          <table className="dt">
+            <thead>
+              <tr><th>ID</th><th>Name</th><th>Domain Expertise</th><th>Region / TZ</th><th>Seniority</th><th>Workload</th><th>Resolved</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, color: '#6b6b6b' }}>Loading...</td></tr>
+              ) : engineers.length === 0 ? (
+                <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, color: '#6b6b6b' }}>No engineers found</td></tr>
+              ) : engineers.map(eng => {
+                const st = getStatus(eng)
+                const loadPct = eng.max_ticket_capacity > 0 ? eng.active_ticket_count / eng.max_ticket_capacity : 0
+                return (
+                  <tr key={eng.id} style={{ opacity: !eng.is_active ? 0.55 : 1 }}>
+                    <td><span className="mono small" style={{ color: '#174D38', fontWeight: 600 }}>{eng.engineer_id}</span></td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ width: 24, height: 24, borderRadius: 4, background: '#174D38', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                          {eng.full_name.charAt(0)}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 500 }}>{eng.full_name}</div>
+                          <div className="tiny muted">{eng.email}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                        {eng.domain_expertise.slice(0, 3).map(d => (
+                          <span key={d} className="pill">{DOMAINS.find(x => x.v === d)?.l || d}</span>
+                        ))}
+                        {eng.domain_expertise.length > 3 && <span className="pill">+{eng.domain_expertise.length - 3}</span>}
+                      </div>
+                    </td>
+                    <td className="small">
+                      {eng.city || eng.region}
+                      <div className="tiny muted">{eng.region} · {eng.timezone}</div>
+                    </td>
+                    <td className="small" style={{ textTransform: 'capitalize' }}>{eng.seniority_level}</td>
+                    <td style={{ width: 120 }}>
+                      <div className="row" style={{ gap: 6 }}>
+                        <span className="mono tiny" style={{ width: 32 }}>{eng.active_ticket_count}/{eng.max_ticket_capacity}</span>
+                        <div className="bar" style={{ flex: 1 }}>
+                          <div className="bar-f" style={{ width: `${loadPct * 100}%`, background: loadPct > 0.85 ? '#4D1717' : loadPct > 0.7 ? '#8a5a00' : '#174D38' }} />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="mono small">{eng.total_resolved}</td>
+                    <td><span className={`pill ${st.p}`}><span className={`dot ${st.c}`} />{st.l}</span></td>
+                    <td>
+                      {eng.is_active ? (
+                        <button className="btn btn-sm btn-r" onClick={() => handleDeactivate(eng.engineer_id)}>Deactivate</button>
+                      ) : (
+                        <button className="btn btn-sm btn-p" onClick={() => handleReactivate(eng.engineer_id)}>Reactivate</button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Create Modal */}
+        {showModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,20,20,.4)', zIndex: 100, display: 'grid', placeItems: 'center', backdropFilter: 'blur(2px)' }} onClick={() => setShowModal(false)}>
+            <div className="adm card" onClick={e => e.stopPropagation()} style={{ width: 560, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 32px rgba(0,0,0,.14)' }}>
+              <div className="c-head" style={{ background: '#174D38', borderRadius: '6px 6px 0 0', borderBottom: 'none' }}>
+                <h3 style={{ color: '#fff' }}>Add New Engineer</h3>
+                <span className="grow" />
+                <button className="btn btn-sm btn-g" style={{ color: 'rgba(255,255,255,.7)' }} onClick={() => setShowModal(false)}>✕</button>
+              </div>
+              <form onSubmit={handleCreate} style={{ padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {error && <div style={{ padding: '8px 12px', background: '#f5eaea', border: '1px solid #4D1717', borderRadius: 4, color: '#4D1717', fontSize: 12 }}>{error}</div>}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div><label className="lbl">Full Name</label><input placeholder="Arjun Sharma" value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} required /></div>
+                  <div><label className="lbl">Email</label><input type="email" placeholder="arjun@company.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required /></div>
+                </div>
+                <div>
+                  <label className="lbl">Domain Expertise</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                    {DOMAINS.map(d => (
+                      <span key={d.v} className={`chip ${form.domain_expertise.includes(d.v) ? 'on' : ''}`} onClick={() => toggleDomain(d.v)}>{d.l}</span>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div><label className="lbl">Region</label>
+                    <select value={form.region} onChange={e => setForm(f => ({ ...f, region: e.target.value }))}>
+                      {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+                  <div><label className="lbl">Timezone</label><input value={form.timezone} onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))} /></div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div><label className="lbl">Seniority</label>
+                    <select value={form.seniority_level} onChange={e => setForm(f => ({ ...f, seniority_level: e.target.value }))}>
+                      {SENIORITY.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+                    </select>
+                  </div>
+                  <div><label className="lbl">Max Capacity</label><input type="number" min={1} max={50} value={form.max_ticket_capacity} onChange={e => setForm(f => ({ ...f, max_ticket_capacity: parseInt(e.target.value) }))} /></div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, paddingTop: 4 }}>
+                  <button type="button" className="btn" style={{ flex: 1 }} onClick={() => setShowModal(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-p" style={{ flex: 2 }} disabled={creating}>{creating ? 'Creating...' : 'Create Engineer →'}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   )
 }

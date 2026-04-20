@@ -102,6 +102,38 @@ def update_ticket(db: Session, user: User, ticket_id: str, data: UpdateTicketReq
     if data.resolution_notes:
         ticket.resolution_notes = data.resolution_notes
 
+        # ── Auto-index into knowledge base on resolve ─────────────────────────
+        # Builds a KB article from this ticket so future similar issues
+        # benefit from this engineer's solution automatically.
+        if data.status == TicketStatus.RESOLVED or ticket.status == TicketStatus.RESOLVED:
+            try:
+                from app.services.knowledge_service import upload_document
+                domain = ticket.domain.value if hasattr(ticket.domain, "value") else str(ticket.domain)
+
+                kb_text = f"""Issue: {ticket.title}
+
+Description: {ticket.description or 'N/A'}
+
+Steps Already Tried: {ticket.steps_tried or 'N/A'}
+
+Resolution: {data.resolution_notes}
+
+AI Diagnosis: {ticket.ai_diagnosis or 'N/A'}
+"""
+                upload_document(
+                    content=kb_text.encode("utf-8"),
+                    filename=f"ticket_{ticket.ticket_number}.txt",
+                    title=f"Resolved: {ticket.title[:80]}",
+                    domain=domain,
+                    description=f"Auto-indexed from resolved ticket {ticket.ticket_number}",
+                    uploaded_by=str(user.id),
+                    uploaded_by_role="engineer_auto",
+                )
+                print(f"\n  🧠 KB Auto-indexed: {ticket.ticket_number} [{domain}]")
+            except Exception as e:
+                print(f"\n  ⚠ KB auto-index failed (non-critical): {e}")
+        # ─────────────────────────────────────────────────────────────────────
+
     db.commit()
     db.refresh(ticket)
     return _ticket_to_response(db, ticket)
@@ -200,3 +232,56 @@ def _ticket_to_response(db: Session, ticket: Ticket) -> TicketResponse:
         updated_at=ticket.updated_at,
         messages=msg_responses,
     )
+
+
+def resolve_ticket(db: Session, user: User, ticket_id: str, resolution_notes: str) -> TicketResponse:
+    """Dedicated resolve function — sets status, timestamps, decrements count, auto-indexes KB."""
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id,
+        Ticket.engineer_id == user.id,
+    ).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if not resolution_notes.strip():
+        raise HTTPException(status_code=400, detail="Resolution notes are required")
+
+    ticket.status           = TicketStatus.RESOLVED
+    ticket.resolved_at      = datetime.utcnow()
+    ticket.resolution_notes = resolution_notes
+
+    engineer = db.query(Engineer).filter(Engineer.user_id == user.id).first()
+    if engineer:
+        engineer.total_resolved    += 1
+        engineer.active_ticket_count = max(0, engineer.active_ticket_count - 1)
+
+    # ── Auto-index into knowledge base ────────────────────────────────────────
+    try:
+        from app.services.knowledge_service import upload_document
+        domain = ticket.domain.value if hasattr(ticket.domain, "value") else str(ticket.domain)
+        kb_text = f"""Issue: {ticket.title}
+
+Description: {ticket.description or 'N/A'}
+
+Steps Already Tried: {ticket.steps_tried or 'N/A'}
+
+Resolution: {resolution_notes}
+
+AI Diagnosis: {ticket.ai_diagnosis or 'N/A'}
+"""
+        upload_document(
+            content=kb_text.encode("utf-8"),
+            filename=f"ticket_{ticket.ticket_number}.txt",
+            title=f"Resolved: {ticket.title[:80]}",
+            domain=domain,
+            description=f"Auto-indexed from resolved ticket {ticket.ticket_number}",
+            uploaded_by=str(user.id),
+            uploaded_by_role="engineer_auto",
+        )
+        print(f"\n  🧠 KB Auto-indexed: {ticket.ticket_number} [{domain}]")
+    except Exception as e:
+        print(f"\n  ⚠ KB auto-index failed (non-critical): {e}")
+    # ─────────────────────────────────────────────────────────────────────────
+
+    db.commit()
+    db.refresh(ticket)
+    return _ticket_to_response(db, ticket)
